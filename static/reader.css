@@ -1,0 +1,218 @@
+/* ComicPack — 阅读器样式（复用 style.css 的变量与按钮） */
+
+body { overflow: hidden; }
+
+/* ---------------- 顶栏 ---------------- */
+.reader-bar { gap: 14px; padding: 10px 16px 9px; }
+
+.reader-bar a { -webkit-app-region: no-drag; text-decoration: none; }
+
+.reader-bar .brand-text p {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 导航胶囊样式复用 style.css 的 .nav */
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  flex-wrap: nowrap;
+}
+
+.sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+
+/* ---------------- 页码 ---------------- */
+.pager { display: flex; align-items: center; gap: 5px; }
+
+.pager .btn { width: 30px; padding: 0; font-size: 16px; line-height: 1; }
+
+#page-input {
+  width: 48px;
+  height: 30px;
+  padding: 0 4px;
+  text-align: center;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: #dfe5f0;
+  background: #0f131a;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: none;
+}
+
+#page-input:focus { border-color: #35507d; box-shadow: 0 0 0 3px rgba(76,141,255,.12); }
+
+.pager-total { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pager-total b { color: #b6bfd1; font-weight: 600; }
+
+/* ---------------- 缩放 ---------------- */
+.zoom { display: flex; align-items: center; gap: 4px; }
+
+.zoom .btn { width: 30px; padding: 0; font-size: 14px; line-height: 1; }
+
+.zoom .fit-btn { width: auto; min-width: 34px; padding: 0 7px; font-size: 11.5px; }
+
+.zoom .fit-btn.active {
+  background: #26364f;
+  border-color: #3a5b8c;
+  color: #cfe0ff;
+}
+
+.zoom-label {
+  min-width: 46px;
+  text-align: center;
+  font-size: 11.5px;
+  color: #9aa4b8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- 阅读区 ---------------- */
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+  background:
+    radial-gradient(900px 500px at 50% 0%, #141a24 0%, transparent 70%),
+    #080a0e;
+}
+
+.stage::-webkit-scrollbar { width: 10px; height: 10px; }
+.stage::-webkit-scrollbar-thumb {
+  background: #2a3140; border-radius: 10px; border: 3px solid #080a0e;
+}
+.stage::-webkit-scrollbar-thumb:hover { background: #384154; }
+
+.canvas {
+  min-height: 100%;
+  min-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+}
+
+.canvas img {
+  display: block;
+  max-width: none;
+  border-radius: 3px;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, .55);
+  opacity: 0;
+  transition: opacity .12s;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.canvas img.loaded { opacity: 1; }
+
+.page-error {
+  max-width: 420px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px dashed #4a2629;
+  background: #1a1214;
+  color: #ff9b95;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* ---------------- 空状态 ---------------- */
+.reader-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  user-select: none;
+}
+
+.reader-empty .empty-icon { font-size: 44px; opacity: .5; }
+
+.reader-empty h2 {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #c8d0df;
+}
+
+.reader-empty p {
+  margin: 0;
+  max-width: 540px;
+  font-size: 12.8px;
+  line-height: 1.8;
+  color: #5f6a80;
+}
+
+.reader-empty b { color: #9aa4b8; font-weight: 600; }
+
+.empty-actions { display: flex; gap: 10px; margin: 8px 0 2px; }
+.empty-hint { font-size: 11.5px !important; color: #4a5364 !important; }
+
+/* ---------------- 加载中 ---------------- */
+.spinner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(8, 10, 14, .35);
+}
+
+.spinner span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2.5px solid #2a3444;
+  border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------------- 底栏 ---------------- */
+.reader-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 16px 9px;
+  border-top: 1px solid var(--line-soft);
+  background: #0c0f14;
+}
+
+#slider {
+  flex: 1 1 auto;
+  min-width: 120px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.foot-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+#page-meta { color: #8b94a7; font-variant-numeric: tabular-nums; }
+.foot-info .hint { color: #4a5364; }
+
+/* ---------------- 窄屏 ---------------- */
+@media (max-width: 1180px) {
+  .reader-bar { flex-wrap: wrap; }
+  .reader-bar .brand-text p { max-width: 220px; }
+  .tools { width: 100%; justify-content: flex-end; }
+}

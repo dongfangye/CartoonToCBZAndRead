@@ -61,8 +61,13 @@ def normalize_path(raw: str) -> str:
     return os.path.normpath(p)
 
 
-def _is_image_name(name: str) -> bool:
+def is_image_name(name: str) -> bool:
+    """文件名是否是受支持的图片（按扩展名判断，不看文件内容）。"""
     return os.path.splitext(name)[1].lower() in IMAGE_EXTS
+
+
+def _is_image_name(name: str) -> bool:      # 兼容旧调用
+    return is_image_name(name)
 
 
 def scan(folder: str) -> dict:

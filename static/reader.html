@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComicPack · 阅读</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/reader.css">
+</head>
+<body>
+
+<header class="topbar reader-bar">
+  <div class="brand">
+    <span class="logo">📖</span>
+    <div class="brand-text">
+      <h1>ComicPack <span class="tag">阅读</span></h1>
+      <p id="doc-name" title="">未打开文件</p>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <a class="ghost" href="/">打包</a>
+    <a class="ghost" href="/reader" aria-current="page">阅读</a>
+  </nav>
+
+  <div class="tools">
+    <button id="btn-open" class="btn btn-primary btn-sm">打开文件…</button>
+    <button id="btn-open-dir" class="btn btn-sm">打开文件夹…</button>
+
+    <span class="sep"></span>
+
+    <div class="pager">
+      <button id="btn-prev" class="btn btn-sm" title="上一页（←）">‹</button>
+      <input id="page-input" type="text" inputmode="numeric" value="1" aria-label="页码">
+      <span class="pager-total">/ <b id="page-total">0</b></span>
+      <button id="btn-next" class="btn btn-sm" title="下一页（→）">›</button>
+    </div>
+
+    <span class="sep"></span>
+
+    <div class="zoom">
+      <button id="btn-zoom-out" class="btn btn-sm" title="缩小（-）">−</button>
+      <span id="zoom-label" class="zoom-label">100%</span>
+      <button id="btn-zoom-in" class="btn btn-sm" title="放大（+）">+</button>
+      <button id="btn-fit-page" class="btn btn-sm fit-btn active" title="整页显示">整页</button>
+      <button id="btn-fit-w" class="btn btn-sm fit-btn" title="适应宽度">宽度</button>
+      <button id="btn-actual" class="btn btn-sm fit-btn" title="原始尺寸（0）">1:1</button>
+    </div>
+
+    <span class="sep"></span>
+
+    <button id="btn-full" class="btn btn-sm" title="全屏（F）">全屏</button>
+    <button id="btn-quit" class="ghost">关闭服务</button>
+  </div>
+</header>
+
+<main id="stage" class="stage">
+  <div id="empty" class="reader-empty">
+    <div class="empty-icon">📖</div>
+    <h2>打开一个漫画包开始阅读</h2>
+    <p>支持 <b>.cbz</b> / <b>.zip</b>（CBZ 就是改了扩展名的 zip），也可以直接打开一个图片文件夹。</p>
+    <div class="empty-actions">
+      <button id="btn-empty-open" class="btn btn-primary">打开文件…</button>
+      <button id="btn-empty-dir" class="btn">打开文件夹…</button>
+    </div>
+    <p class="empty-hint">快捷键：← → 翻页 · + − 缩放 · 0 复位 · F 全屏 · O 打开</p>
+  </div>
+
+  <div id="canvas" class="canvas hidden">
+    <img id="page-img" alt="漫画页面" draggable="false">
+    <div id="page-error" class="page-error hidden"></div>
+  </div>
+
+  <div id="spinner" class="spinner hidden"><span></span></div>
+</main>
+
+<footer class="reader-foot">
+  <input id="slider" type="range" min="1" max="1" value="1" aria-label="跳转页码">
+  <div class="foot-info">
+    <span id="page-meta">—</span>
+    <span class="hint">← → 翻页 · + − 缩放 · F 全屏</span>
+  </div>
+</footer>
+
+<div id="toast" class="toast"></div>
+<script src="/static/reader.js"></script>
+</body>
+</html>

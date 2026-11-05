@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-title ComicPack - image folder to CBZ
+title ComicPack - pack ^& read comics
 
 set "PY=..\.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=..\..\.venv\Scripts\python.exe"

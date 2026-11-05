@@ -73,6 +73,53 @@ body {
   color: var(--dim);
 }
 
+.brand-text h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #9fc0ff;
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid #2f4a74;
+  background: rgba(76, 141, 255, .1);
+  letter-spacing: .5px;
+}
+
+/* ---------------- 顶栏导航 ---------------- */
+.nav {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: #10141b;
+}
+
+.nav a.ghost {
+  height: 26px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+  -webkit-app-region: no-drag;
+}
+
+.nav a.ghost:hover { color: #fff; background: #1b212c; border: none; }
+
+.nav a.ghost[aria-current="page"] {
+  color: #fff;
+  background: linear-gradient(180deg, #3b6fd4, #2f5cb5);
+}
+
 /* ---------------- 布局 ---------------- */
 .layout {
   flex: 1 1 auto;
@@ -538,6 +585,16 @@ input[type="text"]::placeholder { color: #5b6478; }
   padding: 2px 4px;
 }
 .result-item button:hover { text-decoration: underline; }
+
+.result-link {
+  color: #6fa2ff;
+  text-decoration: none;
+  font-size: 11.5px;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.result-link:hover { text-decoration: underline; }
 
 /* ---------------- 提示 ---------------- */
 .toast {

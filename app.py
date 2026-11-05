@@ -4,14 +4,22 @@ app.py — ComicPack 本地 Web 服务
 ================================
 双击「启动.bat」→ 起一个只监听 127.0.0.1 的小服务 → 自动用浏览器「应用窗口」打开页面。
 
+两个页面：
+  /        打包：图片文件夹 → CBZ / ZIP
+  /reader  阅读：直接翻看 CBZ / ZIP（或图片文件夹）
+
 接口：
-  POST /api/browse        弹出 Windows 原生选目录框，返回真实路径
-  POST /api/scan          扫描文件夹里的图片（自然排序）
-  POST /api/pack          开始打包，立即返回 job id
-  GET  /api/job/<id>      查询打包进度
-  POST /api/cancel/<id>   取消打包
-  POST /api/reveal        在资源管理器中定位生成的文件
-  POST /api/shutdown      关闭服务
+  POST /api/browse             弹出 Windows 原生选目录框，返回真实路径
+  POST /api/scan               扫描文件夹里的图片（自然排序）
+  POST /api/pack               开始打包，立即返回 job id
+  GET  /api/job/<id>           查询打包进度
+  POST /api/cancel/<id>        取消打包
+  POST /api/reveal             在资源管理器中定位生成的文件
+  POST /api/reader/browse      弹出选文件 / 选目录框（mode=file|folder）
+  POST /api/reader/open        打开漫画包或文件夹，返回阅读会话
+  GET  /api/reader/page/<sid>/<n>  取第 n 页图片（0 基）
+  POST /api/reader/close/<sid> 关闭阅读会话
+  POST /api/shutdown           关闭服务
 
 只依赖 Python 标准库（zipfile / tkinter / http.server）。
 """
@@ -31,6 +39,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import packer
+import reader
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -61,6 +70,40 @@ def ask_folder(initial: str = "") -> dict:
             if initial and os.path.isdir(initial):
                 kw["initialdir"] = initial
             chosen = filedialog.askdirectory(**kw)
+            return {"ok": True, "path": packer.normalize_path(chosen) if chosen else "",
+                    "cancelled": not chosen}
+        except Exception as exc:
+            return {"ok": False, "error": f"打开选择框失败：{exc}"}
+        finally:
+            if root is not None:
+                try:
+                    root.destroy()
+                except Exception:
+                    pass
+
+
+# ---------------------------------------------------------------- 原生选文件
+def ask_file(initial: str = "") -> dict:
+    """选择要阅读的漫画包（CBZ / ZIP）。"""
+    with _dialog_lock:
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+        except Exception as exc:
+            return {"ok": False, "error": f"当前 Python 缺少 tkinter，无法弹出选择框：{exc}"}
+        root = None
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            root.update()
+            kw = {"parent": root, "title": "选择漫画包（CBZ / ZIP）", "mustexist": True,
+                  "filetypes": [("漫画包", "*.cbz *.zip"), ("ZIP 压缩包", "*.zip"), ("所有文件", "*.*")]}
+            if initial:
+                guess = initial if os.path.isdir(initial) else os.path.dirname(initial)
+                if guess and os.path.isdir(guess):
+                    kw["initialdir"] = guess
+            chosen = filedialog.askopenfilename(**kw)
             return {"ok": True, "path": packer.normalize_path(chosen) if chosen else "",
                     "cancelled": not chosen}
         except Exception as exc:
@@ -125,18 +168,18 @@ def start_job(folder: str, formats: list, keep_names: bool) -> str:
 
 # ---------------------------------------------------------------- HTTP 处理
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ComicPack/1.0"
+    server_version = "ComicPack/1.1"
     protocol_version = "HTTP/1.1"
 
     # ---- 基础工具
     def log_message(self, fmt, *args):                # 静默访问日志
         pass
 
-    def _send(self, code: int, body: bytes, ctype: str):
+    def _send(self, code: int, body: bytes, ctype: str, cache: str = "no-store"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -184,10 +227,27 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             return self._static("index.html")
+        if path in ("/reader", "/reader.html"):
+            return self._static("reader.html")
         if path.startswith("/static/"):
             return self._static(path[len("/static/"):])
         if path == "/api/health":
-            return self._json({"ok": True, "version": "1.0"})
+            return self._json({"ok": True, "version": "1.1"})
+        if path.startswith("/api/reader/page/"):
+            parts = [p for p in path.split("/") if p]
+            if len(parts) != 5:
+                return self._json({"ok": False, "error": "not found"}, 404)
+            sid, raw_index = parts[3], parts[4]
+            try:
+                index = int(raw_index)
+            except ValueError:
+                return self._json({"ok": False, "error": "页码无效"}, 400)
+            try:
+                data, ctype, _name = reader.page(sid, index)
+            except reader.ReaderError as exc:
+                return self._json({"ok": False, "error": str(exc)}, 404)
+            # 同一会话同一页内容不会变，放心让浏览器缓存
+            return self._send(200, data, ctype, cache="public, max-age=86400")
         if path.startswith("/api/job/"):
             jid = path.rsplit("/", 1)[-1]
             with _jobs_lock:
@@ -226,6 +286,16 @@ class Handler(BaseHTTPRequestHandler):
                     if job:
                         job["cancel"].set()
                 return self._json({"ok": bool(job)})
+            if path == "/api/reader/browse":
+                mode = (data.get("mode") or "file").lower()
+                if mode == "folder":
+                    return self._json(ask_folder(data.get("initial") or ""))
+                return self._json(ask_file(data.get("initial") or ""))
+            if path == "/api/reader/open":
+                return self._json(reader.open_path(data.get("path") or ""))
+            if path.startswith("/api/reader/close/"):
+                sid = path.rsplit("/", 1)[-1]
+                return self._json({"ok": reader.close(sid)})
             if path == "/api/reveal":
                 target = packer.normalize_path(data.get("path") or "")
                 if target and os.path.exists(target):
@@ -242,6 +312,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def _shutdown():
     time.sleep(0.25)
+    reader.close_all()
     srv = _server_ref.get("server")
     if srv:
         srv.shutdown()
@@ -289,7 +360,7 @@ def _open_app(url: str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ComicPack — 图片文件夹打包成 cbz/zip")
+    ap = argparse.ArgumentParser(description="ComicPack — 图片打包成 cbz/zip，并在网页里直接阅读")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-browser", action="store_true", help="只起服务，不自动开浏览器")
     args = ap.parse_args()
@@ -301,7 +372,7 @@ def main():
     _server_ref["server"] = srv
 
     print("=" * 58)
-    print("  ComicPack — 图片文件夹打包成 CBZ / ZIP")
+    print("  ComicPack — 图片打包 + CBZ 阅读")
     print(f"  服务地址：{url}")
     print("  关闭方式：页面右上角「关闭服务」／本窗口 Ctrl+C／直接关窗口")
     print("=" * 58, flush=True)
@@ -314,6 +385,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        reader.close_all()
         srv.server_close()
     print("服务已停止")
 

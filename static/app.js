@@ -308,7 +308,13 @@ function renderResult(result) {
     btn.textContent = "打开位置";
     btn.onclick = () => post("/api/reveal", { path: p.path }).catch(() => {});
 
-    row.append(name, size, btn);
+    const read = document.createElement("a");
+    read.className = "result-link";
+    read.href = "/reader?path=" + encodeURIComponent(p.path);
+    read.textContent = "阅读";
+    read.title = "在阅读器里打开这个包";
+
+    row.append(name, size, btn, read);
     box.appendChild(row);
   });
   resetButtons();
