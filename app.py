@@ -296,7 +296,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(ask_folder(data.get("initial") or ""))
                 return self._json(ask_file(data.get("initial") or ""))
             if path == "/api/reader/open":
-                return self._json(reader.open_path(data.get("path") or ""))
+                return self._json(reader.open_path(data.get("path") or "",
+                                                   bool(data.get("prefer_images"))))
             if path.startswith("/api/reader/close/"):
                 sid = path.rsplit("/", 1)[-1]
                 return self._json({"ok": reader.close(sid)})

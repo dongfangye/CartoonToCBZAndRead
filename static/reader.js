@@ -83,10 +83,10 @@ async function openDialog(mode) {
   }
 }
 
-async function openPath(path) {
+async function openPath(path, preferImages) {
   setBusy(true, true);
   try {
-    const r = await post("/api/reader/open", { path });
+    const r = await post("/api/reader/open", { path, prefer_images: !!preferImages });
     if (!r.ok) throw new Error(r.error || "打开失败");
     if (r.kind === "library") {
       showLibrary(r);
@@ -169,7 +169,9 @@ function showLibrary(r) {
   $("#doc-count").classList.add("hidden");
   $("#page-total").textContent = "0";
   $("#page-input").value = "";
-  $("#page-meta").textContent = `${r.archive_count} 个漫画包 · ${r.folder_count} 个文件夹`;
+  let libMeta = `${r.archive_count} 个漫画包 · ${r.folder_count} 个文件夹`;
+  if (r.image_count) libMeta += ` · ${r.image_count} 张图片`;
+  $("#page-meta").textContent = libMeta;
   history.replaceState(null, "", "/reader?path=" + encodeURIComponent(r.path));
 
   $("#lib-path").textContent = r.path;
@@ -188,7 +190,7 @@ function showLibrary(r) {
     const li = document.createElement("li");
     const kind = document.createElement("span");
     kind.className = "lib-kind";
-    kind.textContent = item.kind === "archive" ? "📦" : "📁";
+    kind.textContent = item.kind === "archive" ? "📦" : (item.kind === "images" ? "🖼️" : "📁");
 
     const name = document.createElement("span");
     name.className = "lib-name";
@@ -196,13 +198,13 @@ function showLibrary(r) {
 
     const meta = document.createElement("span");
     meta.className = "lib-meta";
-    meta.textContent = item.kind === "archive"
-      ? (item.bytes_text || humanSize(item.size))
-      : "文件夹";
+    if (item.kind === "archive") meta.textContent = item.bytes_text || humanSize(item.size);
+    else if (item.kind === "images") meta.textContent = `${item.count} 张图片`;
+    else meta.textContent = "文件夹";
 
     li.append(kind, name, meta);
     li.title = item.path;
-    li.addEventListener("click", () => openPath(item.path));
+    li.addEventListener("click", () => openPath(item.path, item.kind === "images"));
     list.appendChild(li);
   });
 }

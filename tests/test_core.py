@@ -189,8 +189,8 @@ class ReaderTest(unittest.TestCase):
             self.assertEqual((data, ctype), (JPG, "image/jpeg"))
             reader.close(info["id"])
 
-    def test_folder_with_archives_opens_first_chapter(self):
-        """选一个装有多本 cbz 的文件夹：直接打开第一本，并把同目录的包作为章节返回。"""
+    def test_folder_with_archives_lists_them(self):
+        """选一个装有多本 cbz 的文件夹：列成书架，文件夹和包都在列表里。"""
         with workdir() as tmp:
             for name in ("第01话", "第02话", "第10话"):
                 src = os.path.join(tmp, name)
@@ -202,13 +202,14 @@ class ReaderTest(unittest.TestCase):
 
             info = reader.open_path(tmp)
             self.assertTrue(info["ok"], info)
-            self.assertEqual(info["kind"], "zip")
-            self.assertTrue(info["path"].endswith("第01话.cbz"), info["path"])
-            self.assertEqual(info["chapter_count"], 3)
-            self.assertEqual(info["chapter_index"], 0)
-            self.assertEqual([c["name"] for c in info["chapters"]],
-                             ["第01话.cbz", "第02话.cbz", "第10话.cbz"])
-            reader.close(info["id"])
+            self.assertEqual(info["kind"], "library")
+            self.assertEqual(info["archive_count"], 3)
+            self.assertEqual(info["folder_count"], 3)      # 打包后的源文件夹也在
+            self.assertEqual([i["name"] for i in info["items"]],
+                             ["第01话.cbz", "第02话.cbz", "第10话.cbz",
+                              "第01话", "第02话", "第10话"])
+            self.assertEqual([i["kind"] for i in info["items"]],
+                             ["archive", "archive", "archive", "folder", "folder", "folder"])
 
     def test_chapters_sorted_and_indexed(self):
         with workdir() as tmp:
@@ -227,6 +228,35 @@ class ReaderTest(unittest.TestCase):
                              ["第1话.cbz", "第2话.cbz", "第10话.cbz"])
             self.assertEqual(info["chapter_index"], 1)
             reader.close(info["id"])
+
+    def test_mixed_folder_lists_images_entry(self):
+        """文件夹里同时有散图和 cbz：列表里既有包，也有“直接读本层图片”的入口。"""
+        with workdir() as tmp:
+            with open(os.path.join(tmp, "1.jpg"), "wb") as fh:
+                fh.write(JPG)
+            with open(os.path.join(tmp, "2.jpg"), "wb") as fh:
+                fh.write(JPG)
+            src = os.path.join(tmp, "书")
+            os.makedirs(src)
+            with open(os.path.join(src, "1.jpg"), "wb") as fh:
+                fh.write(JPG)
+            packer.pack(src, ["cbz"])
+            shutil.rmtree(src)
+
+            info = reader.open_path(tmp)
+            self.assertTrue(info["ok"], info)
+            self.assertEqual(info["kind"], "library")
+            self.assertEqual(info["image_count"], 2)
+            kinds = [i["kind"] for i in info["items"]]
+            self.assertEqual(kinds, ["archive", "images"])
+            self.assertEqual(info["items"][1]["count"], 2)
+
+            # 走“直接读本层图片”入口
+            pics = reader.open_path(tmp, prefer_images=True)
+            self.assertTrue(pics["ok"], pics)
+            self.assertEqual(pics["kind"], "folder")
+            self.assertEqual(pics["page_count"], 2)
+            reader.close(pics["id"])
 
     def test_folder_with_single_archive_opens_it(self):
         with workdir() as tmp:
@@ -400,17 +430,20 @@ class HttpTest(unittest.TestCase):
             packer.pack(src, ["cbz"])
             shutil.rmtree(src)
 
-        # 选这个文件夹：直接打开第一本，并返回同目录所有章节
+        # 选这个文件夹：列出所有包（不再自动打开第一本）
         res = self.post("/api/reader/open", {"path": lib})
         self.assertTrue(res["ok"], res)
-        self.assertEqual(res["kind"], "zip")
-        self.assertEqual(res["chapter_count"], 2)
-        self.assertEqual(res["chapter_index"], 0)
-        self.assertEqual([c["name"] for c in res["chapters"]],
+        self.assertEqual(res["kind"], "library")
+        self.assertEqual([i["name"] for i in res["items"]],
                          ["第01话.cbz", "第02话.cbz"])
 
-        # 打开第二本：章节序号跟着变，便于“下一话”
-        nxt = self.post("/api/reader/open", {"path": res["chapters"][1]["path"]})
+        # 点开其中一本：返回同目录章节，序号用于“下一话”
+        first = self.post("/api/reader/open", {"path": res["items"][0]["path"]})
+        self.assertEqual(first["kind"], "zip")
+        self.assertEqual(first["chapter_count"], 2)
+        self.assertEqual(first["chapter_index"], 0)
+
+        nxt = self.post("/api/reader/open", {"path": res["items"][1]["path"]})
         self.assertEqual(nxt["chapter_index"], 1)
         self.assertEqual(nxt["page_count"], 1)
         reader.close(nxt["id"])

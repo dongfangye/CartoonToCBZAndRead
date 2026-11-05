@@ -176,8 +176,21 @@ def _drop(sid: str):
             pass
 
 
-def open_path(raw_path: str) -> dict:
-    """打开漫画包或图片文件夹，返回阅读会话信息。"""
+def _folder_session(path: str, images: list) -> dict:
+    """把「一层散图」当一本漫画读。"""
+    pages = [{"name": im["name"], "size": im["size"]} for im in images]
+    sid = _remember({"kind": "folder", "path": path,
+                     "name": os.path.basename(path) or path,
+                     "pages": pages, "folder": path, "zf": None})
+    return _public(sid, pages, path, "folder")
+
+
+def open_path(raw_path: str, prefer_images: bool = False) -> dict:
+    """打开漫画包或文件夹。
+
+    文件夹：列成书架（子文件夹 + 漫画包 + 可选的“本层图片”入口），
+    让用户自己挑；只有一层散图（或 prefer_images=True）时才直接读图。
+    """
     path = packer.normalize_path(raw_path)
     if not path:
         return {"ok": False, "error": "请选择一个 CBZ / ZIP 文件"}
@@ -187,32 +200,43 @@ def open_path(raw_path: str) -> dict:
         except ReaderError as exc:
             return {"ok": False, "error": str(exc)}
 
-        # 文件夹里有漫画包：直接打开第一本，同目录的其它包作为章节返回
-        if shelf["archives"]:
-            return open_path(shelf["archives"][0]["path"])
-
         info = packer.scan(path)
-        if not info.get("ok"):
-            return {"ok": False, "error": info.get("error") or "无法读取文件夹"}
-        if info["images"]:
-            pages = [{"name": im["name"], "size": im["size"]} for im in info["images"]]
-            sid = _remember({"kind": "folder", "path": path,
-                             "name": os.path.basename(path) or path,
-                             "pages": pages, "folder": path, "zf": None})
-            return _public(sid, pages, path, "folder")
+        images = info["images"] if info.get("ok") else []
 
-        # 只有子文件夹：列成书架继续往下找
-        if shelf["folders"]:
+        if prefer_images and images:
+            return _folder_session(path, images)
+
+        archives = shelf["archives"]
+        folders = shelf["folders"]
+
+        # 只有一个包、别的什么都没有：直接打开，省一次点击
+        if len(archives) == 1 and not folders and not images:
+            return open_path(archives[0]["path"])
+
+        items = list(archives) + list(folders)
+        if images and (archives or folders):
+            items.append({
+                "kind": "images",
+                "name": f"直接阅读本层 {len(images)} 张图片",
+                "path": path,
+                "count": len(images),
+            })
+
+        if items:
             return {
                 "ok": True,
                 "kind": "library",
                 "path": path,
                 "name": os.path.basename(path.rstrip("\\/")) or path,
                 "parent": os.path.dirname(path.rstrip("\\/")),
-                "items": shelf["folders"],
-                "archive_count": 0,
-                "folder_count": len(shelf["folders"]),
+                "items": items,
+                "archive_count": len(archives),
+                "folder_count": len(folders),
+                "image_count": len(images),
             }
+
+        if images:
+            return _folder_session(path, images)
         return {"ok": False, "error": "这个文件夹里没有图片，也没有 CBZ / ZIP 漫画包"}
 
     if not os.path.isfile(path):
