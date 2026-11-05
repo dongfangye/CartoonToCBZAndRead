@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComicPack · 图片转 CBZ</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">📦</span>
+    <div class="brand-text">
+      <h1>ComicPack</h1>
+      <p>图片文件夹 → CBZ / ZIP</p>
+    </div>
+  </div>
+  <button id="btn-quit" class="ghost" title="停止本地服务">关闭服务</button>
+</header>
+
+<main class="layout">
+
+  <!-- ================= 左：文件夹与图片清单 ================= -->
+  <section class="panel panel-left">
+    <div class="panel-head">
+      <h2>图片文件夹</h2>
+      <span class="hint">只处理这一层，不递归子目录</span>
+    </div>
+
+    <div class="path-row">
+      <input id="path" type="text" spellcheck="false"
+             placeholder="点「浏览…」选择，或直接粘贴路径（支持带引号）">
+      <button id="btn-browse" class="btn btn-primary">浏览…</button>
+      <button id="btn-scan" class="btn">扫描</button>
+    </div>
+
+    <div id="summary" class="summary">尚未选择文件夹</div>
+
+    <div class="list-wrap">
+      <ol id="list" class="img-list"></ol>
+      <div id="list-empty" class="empty">
+        <div class="empty-icon">🗂️</div>
+        <p>选择一个图片文件夹后，这里会列出将要打包的图片</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 右：导出设置 ================= -->
+  <aside class="panel panel-right">
+    <div class="panel-head">
+      <h2>导出设置</h2>
+    </div>
+
+    <div class="group">
+      <div class="group-title">导出格式 <span class="sub">可多选</span></div>
+      <label class="check">
+        <input type="checkbox" name="fmt" value="cbz" checked>
+        <span class="check-box"></span>
+        <span class="check-main">CBZ<em>漫画阅读器标准格式</em></span>
+      </label>
+      <label class="check">
+        <input type="checkbox" name="fmt" value="zip">
+        <span class="check-box"></span>
+        <span class="check-main">ZIP<em>与 CBZ 内容相同，仅扩展名不同</em></span>
+      </label>
+      <p class="tip">同时勾选时只打包一次，再复制成两份，不会写两遍。</p>
+    </div>
+
+    <div class="group">
+      <div class="group-title">包内命名</div>
+      <label class="check">
+        <input type="checkbox" id="keep-names">
+        <span class="check-box"></span>
+        <span class="check-main">保留原文件名<em>默认重编号为 001.jpg，避免 2 排在 10 后面</em></span>
+      </label>
+    </div>
+
+    <div class="group">
+      <div class="group-title">输出位置</div>
+      <div class="output-preview" id="output-preview">—</div>
+      <p class="tip">与原文件夹同级；重名自动加 <code>_1</code>，不覆盖已有文件。</p>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div id="progress-box" class="progress-box hidden">
+      <div class="progress-top">
+        <span id="progress-label">准备中…</span>
+        <span id="progress-pct">0%</span>
+      </div>
+      <div class="track"><div id="progress-fill" class="fill"></div></div>
+      <div class="progress-sub" id="progress-sub"></div>
+      <button id="btn-cancel" class="btn btn-danger btn-sm">取消</button>
+    </div>
+
+    <div id="result-box" class="result-box hidden"></div>
+
+    <button id="btn-start" class="btn btn-start" disabled>开始打包</button>
+  </aside>
+
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
