@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -103,6 +104,48 @@ class PackerTest(unittest.TestCase):
                 self.assertTrue(all(i.compress_type == zipfile.ZIP_STORED
                                     for i in zf.infolist()))
 
+    def test_pack_delete_source(self):
+        with workdir() as tmp:
+            src = os.path.join(tmp, "第04话")
+            os.makedirs(src)
+            for name in ("1.jpg", "2.jpg", "10.jpg"):
+                with open(os.path.join(src, name), "wb") as fh:
+                    fh.write(JPG)
+
+            res = packer.pack(src, ["cbz"], delete_source=True)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["deleted"], 3)
+            self.assertFalse(res["delete_errors"])
+            self.assertTrue(res["removed_folder"])
+            self.assertFalse(os.path.exists(src), "空文件夹应被一并删除")
+            self.assertTrue(os.path.isfile(res["produced"][0]["path"]))
+
+    def test_pack_delete_keeps_other_files(self):
+        with workdir() as tmp:
+            src = os.path.join(tmp, "第05话")
+            os.makedirs(src)
+            for name in ("1.jpg", "2.jpg"):
+                with open(os.path.join(src, name), "wb") as fh:
+                    fh.write(JPG)
+            with open(os.path.join(src, "notes.txt"), "wb") as fh:
+                fh.write(b"keep me")
+
+            res = packer.pack(src, ["cbz"], delete_source=True)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["deleted"], 2)
+            self.assertFalse(res["removed_folder"])
+            self.assertEqual(os.listdir(src), ["notes.txt"])
+
+    def test_pack_without_delete_keeps_sources(self):
+        with workdir() as tmp:
+            src = os.path.join(tmp, "第06话")
+            os.makedirs(src)
+            with open(os.path.join(src, "1.jpg"), "wb") as fh:
+                fh.write(JPG)
+            res = packer.pack(src, ["cbz"])
+            self.assertEqual(res["deleted"], 0)
+            self.assertTrue(os.path.isfile(os.path.join(src, "1.jpg")))
+
 
 class ReaderTest(unittest.TestCase):
     def _make_cbz(self, folder: str) -> tuple:
@@ -145,6 +188,68 @@ class ReaderTest(unittest.TestCase):
             data, ctype, _ = reader.page(info["id"], 0)
             self.assertEqual((data, ctype), (JPG, "image/jpeg"))
             reader.close(info["id"])
+
+    def test_folder_with_archives_becomes_library(self):
+        with workdir() as tmp:
+            for name in ("第01话", "第02话"):
+                src = os.path.join(tmp, name)
+                os.makedirs(src)
+                for fname in ("1.jpg", "2.jpg"):
+                    with open(os.path.join(src, fname), "wb") as fh:
+                        fh.write(JPG)
+                packer.pack(src, ["cbz"])
+
+            info = reader.open_path(tmp)
+            self.assertTrue(info["ok"], info)
+            self.assertEqual(info["kind"], "library")
+            self.assertEqual(info["archive_count"], 2)
+            self.assertEqual(info["folder_count"], 2)   # 打包后源文件夹还在，也列出来
+            self.assertEqual([i["name"] for i in info["items"]],
+                             ["第01话.cbz", "第02话.cbz", "第01话", "第02话"])
+            self.assertEqual([i["kind"] for i in info["items"]],
+                             ["archive", "archive", "folder", "folder"])
+
+    def test_folder_with_single_archive_opens_it(self):
+        with workdir() as tmp:
+            src = os.path.join(tmp, "第03话")
+            os.makedirs(src)
+            with open(os.path.join(src, "1.jpg"), "wb") as fh:
+                fh.write(JPG)
+            packer.pack(src, ["cbz"])
+            shutil.rmtree(src)          # 只剩一个包：应直接打开，而不是列书架
+
+            info = reader.open_path(tmp)
+            self.assertTrue(info["ok"], info)
+            self.assertEqual(info["kind"], "zip")
+            self.assertEqual(info["page_count"], 1)
+            reader.close(info["id"])
+
+    def test_empty_folder_reports_clearly(self):
+        with workdir() as tmp:
+            info = reader.open_path(tmp)
+            self.assertFalse(info["ok"])
+            self.assertIn("漫画包", info["error"])
+
+    def test_many_sessions_no_deadlock(self):
+        """超过会话上限要能继续打开（曾因重复拿锁而卡死第 9 个）。"""
+        with workdir() as tmp:
+            cbz, _src = self._make_cbz(tmp)
+            result = {}
+
+            def work():
+                ids = []
+                for _ in range(reader.MAX_SESSIONS + 3):
+                    info = reader.open_path(cbz)
+                    self.assertTrue(info["ok"], info)
+                    ids.append(info["id"])
+                result["ids"] = ids
+
+            worker = threading.Thread(target=work, daemon=True)
+            worker.start()
+            worker.join(10)
+            self.assertFalse(worker.is_alive(), "打开超过会话上限时死锁了")
+            self.assertEqual(len(result["ids"]), reader.MAX_SESSIONS + 3)
+            self.assertLessEqual(len(reader._sessions), reader.MAX_SESSIONS)
 
     def test_rejects_non_zip(self):
         with workdir() as tmp:
@@ -231,6 +336,51 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
         self.assertTrue(self.post(f"/api/reader/close/{info['id']}", {})["ok"])
+
+    def test_pack_with_delete_source(self):
+        src = os.path.join(self.tmp, "第09话")
+        os.makedirs(src)
+        for name in ("1.jpg", "2.jpg"):
+            with open(os.path.join(src, name), "wb") as fh:
+                fh.write(JPG)
+
+        job = self.post("/api/pack", {"path": src, "formats": ["cbz"],
+                                      "delete_source": True})
+        snap = {}
+        for _ in range(60):
+            time.sleep(0.1)
+            snap = json.loads(self.get(f"/api/job/{job['job']}")[2])
+            if snap["job"]["status"] != "running":
+                break
+
+        self.assertEqual(snap["job"]["status"], "done", snap)
+        self.assertEqual(snap["job"]["result"]["deleted"], 2)
+        self.assertTrue(snap["job"]["result"]["removed_folder"])
+        self.assertFalse(os.path.exists(src))
+        self.assertTrue(os.path.isfile(snap["job"]["result"]["produced"][0]["path"]))
+
+    def test_folder_library_over_http(self):
+        lib = os.path.join(self.tmp, "书架")
+        os.makedirs(lib)
+        for name in ("第01话", "第02话"):
+            src = os.path.join(lib, name)
+            os.makedirs(src)
+            with open(os.path.join(src, "1.jpg"), "wb") as fh:
+                fh.write(JPG)
+            packer.pack(src, ["cbz"])
+
+        res = self.post("/api/reader/open", {"path": lib})
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["kind"], "library")
+        self.assertEqual(res["archive_count"], 2)
+        self.assertEqual([i["name"] for i in res["items"]],
+                         ["第01话.cbz", "第02话.cbz", "第01话", "第02话"])
+
+        # 从书架里再打开其中一本
+        book = self.post("/api/reader/open", {"path": res["items"][0]["path"]})
+        self.assertEqual(book["kind"], "zip")
+        self.assertEqual(book["page_count"], 1)
+        reader.close(book["id"])
 
 
 if __name__ == "__main__":

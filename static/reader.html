@@ -15,7 +15,10 @@
     <span class="logo">📖</span>
     <div class="brand-text">
       <h1>ComicPack <span class="tag">阅读</span></h1>
-      <p id="doc-name" title="">未打开文件</p>
+      <p>
+        <span id="doc-name" title="">未打开文件</span>
+        <span id="doc-count" class="doc-count hidden"></span>
+      </p>
     </div>
   </div>
 
@@ -27,6 +30,14 @@
   <div class="tools">
     <button id="btn-open" class="btn btn-primary btn-sm">打开文件…</button>
     <button id="btn-open-dir" class="btn btn-sm">打开文件夹…</button>
+
+    <span class="sep"></span>
+
+    <div class="modes">
+      <button id="btn-mode-single" class="btn btn-sm mode-btn active" title="单页">单页</button>
+      <button id="btn-mode-double" class="btn btn-sm mode-btn" title="双页并排">双页</button>
+      <button id="btn-mode-scroll" class="btn btn-sm mode-btn" title="竖屏连续滚动">竖屏</button>
+    </div>
 
     <span class="sep"></span>
 
@@ -59,7 +70,8 @@
   <div id="empty" class="reader-empty">
     <div class="empty-icon">📖</div>
     <h2>打开一个漫画包开始阅读</h2>
-    <p>支持 <b>.cbz</b> / <b>.zip</b>（CBZ 就是改了扩展名的 zip），也可以直接打开一个图片文件夹。</p>
+    <p>支持 <b>.cbz</b> / <b>.zip</b>（CBZ 就是改了扩展名的 zip），也可以直接打开一个图片文件夹——
+       文件夹里放的是漫画包的话，会列出这些包让你挑。</p>
     <div class="empty-actions">
       <button id="btn-empty-open" class="btn btn-primary">打开文件…</button>
       <button id="btn-empty-dir" class="btn">打开文件夹…</button>
@@ -67,18 +79,37 @@
     <p class="empty-hint">快捷键：← → 翻页 · + − 缩放 · 0 复位 · F 全屏 · O 打开</p>
   </div>
 
+  <div id="library" class="library hidden">
+    <div class="library-head">
+      <div class="lib-title">
+        <span class="lib-icon">📚</span>
+        <span id="lib-path" class="lib-path"></span>
+      </div>
+      <button id="btn-lib-up" class="btn btn-sm">上一级</button>
+    </div>
+    <ul id="lib-list" class="lib-list"></ul>
+  </div>
+
   <div id="canvas" class="canvas hidden">
-    <img id="page-img" alt="漫画页面" draggable="false">
+    <div id="spread" class="spread">
+      <img id="img-a" class="page-img" alt="页面" draggable="false">
+      <img id="img-b" class="page-img hidden" alt="右页" draggable="false">
+    </div>
     <div id="page-error" class="page-error hidden"></div>
   </div>
+
+  <div id="scroll" class="scroll hidden"></div>
 
   <div id="spinner" class="spinner hidden"><span></span></div>
 </main>
 
 <footer class="reader-foot">
   <input id="slider" type="range" min="1" max="1" value="1" aria-label="跳转页码">
+  <label id="cover-solo-wrap" class="mini-check hidden">
+    <input id="cover-solo" type="checkbox" checked> 封面单独
+  </label>
   <div class="foot-info">
-    <span id="page-meta">—</span>
+    <span id="page-meta">未打开文件</span>
     <span class="hint">← → 翻页 · + − 缩放 · F 全屏</span>
   </div>
 </footer>

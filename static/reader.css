@@ -3,15 +3,34 @@
 body { overflow: hidden; }
 
 /* ---------------- 顶栏 ---------------- */
-.reader-bar { gap: 14px; padding: 10px 16px 9px; }
+.reader-bar { gap: 12px; padding: 10px 16px 9px; }
 
 .reader-bar a { -webkit-app-region: no-drag; text-decoration: none; }
 
 .reader-bar .brand-text p {
-  max-width: 360px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 340px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+#doc-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.doc-count {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: #93a0b8;
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid #2b3446;
+  background: #151b25;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 导航胶囊样式复用 style.css 的 .nav */
@@ -25,6 +44,18 @@ body { overflow: hidden; }
 }
 
 .sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+
+/* ---------------- 阅读模式 ---------------- */
+.modes { display: flex; gap: 4px; }
+
+.mode-btn { padding: 0 9px; font-size: 11.5px; }
+
+.mode-btn.active,
+.fit-btn.active {
+  background: #26364f;
+  border-color: #3a5b8c;
+  color: #cfe0ff;
+}
 
 /* ---------------- 页码 ---------------- */
 .pager { display: flex; align-items: center; gap: 5px; }
@@ -57,12 +88,6 @@ body { overflow: hidden; }
 
 .zoom .fit-btn { width: auto; min-width: 34px; padding: 0 7px; font-size: 11.5px; }
 
-.zoom .fit-btn.active {
-  background: #26364f;
-  border-color: #3a5b8c;
-  color: #cfe0ff;
-}
-
 .zoom-label {
   min-width: 46px;
   text-align: center;
@@ -92,12 +117,22 @@ body { overflow: hidden; }
   min-height: 100%;
   min-width: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 14px;
 }
 
-.canvas img {
+/* 单页 / 双页容器：双页之间留 6px 缝，避免两页完全贴死 */
+.spread {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.spread .page-img {
   display: block;
   max-width: none;
   border-radius: 3px;
@@ -108,10 +143,13 @@ body { overflow: hidden; }
   -webkit-user-drag: none;
 }
 
-.canvas img.loaded { opacity: 1; }
+.spread .page-img.loaded { opacity: 1; }
+
+.single-gap { box-shadow: 0 12px 44px rgba(0,0,0,.55); }
 
 .page-error {
   max-width: 420px;
+  margin-top: 14px;
   padding: 18px 20px;
   border-radius: 12px;
   border: 1px dashed #4a2629;
@@ -120,6 +158,106 @@ body { overflow: hidden; }
   font-size: 13px;
   line-height: 1.7;
   text-align: center;
+}
+
+/* ---------------- 竖屏连续滚动 ---------------- */
+.scroll {
+  min-height: 100%;
+  padding: 10px 0 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.scroll-page {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity .15s;
+  user-select: none;
+  -webkit-user-drag: none;
+  background: #12161e;
+}
+
+.scroll-page.loaded { opacity: 1; }
+
+/* ---------------- 书架（选文件夹时列出漫画包） ---------------- */
+.library {
+  min-height: 100%;
+  padding: 22px 26px 40px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.library-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.lib-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lib-icon { font-size: 16px; opacity: .8; }
+
+.lib-path {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  color: #7f8ba1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.lib-list { list-style: none; margin: 0; padding: 0; }
+
+.lib-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: #12161e;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .06s;
+}
+
+.lib-list li:hover { border-color: #35507d; background: #16202e; }
+.lib-list li:active { transform: translateY(1px); }
+
+.lib-kind { font-size: 16px; width: 20px; text-align: center; }
+
+.lib-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #dfe5f0;
+  font-size: 13px;
+}
+
+.lib-meta { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+.lib-empty {
+  padding: 26px;
+  text-align: center;
+  color: #5f6a80;
+  font-size: 13px;
 }
 
 /* ---------------- 空状态 ---------------- */
@@ -147,7 +285,7 @@ body { overflow: hidden; }
 
 .reader-empty p {
   margin: 0;
-  max-width: 540px;
+  max-width: 560px;
   font-size: 12.8px;
   line-height: 1.8;
   color: #5f6a80;
@@ -184,7 +322,7 @@ body { overflow: hidden; }
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   padding: 7px 16px 9px;
   border-top: 1px solid var(--line-soft);
   background: #0c0f14;
@@ -197,6 +335,19 @@ body { overflow: hidden; }
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+.mini-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #8b94a7;
+  user-select: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mini-check input { accent-color: var(--accent); cursor: pointer; }
 
 .foot-info {
   display: flex;
@@ -211,8 +362,8 @@ body { overflow: hidden; }
 .foot-info .hint { color: #4a5364; }
 
 /* ---------------- 窄屏 ---------------- */
-@media (max-width: 1180px) {
+@media (max-width: 1280px) {
   .reader-bar { flex-wrap: wrap; }
-  .reader-bar .brand-text p { max-width: 220px; }
-  .tools { width: 100%; justify-content: flex-end; }
+  .reader-bar .brand-text p { max-width: 200px; }
+  .tools { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
 }

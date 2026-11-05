@@ -430,6 +430,27 @@ input[type="text"]::placeholder { color: #5b6478; }
   box-shadow: 0 0 0 3px rgba(76,141,255,.25);
 }
 
+/* 危险操作（删除原图） */
+.check-danger:has(input:checked) {
+  border-color: #4a2629;
+  background: #1a1214;
+}
+
+.check-danger input:checked + .check-box {
+  background: #d9534f;
+  border-color: #d9534f;
+}
+
+.check-danger input:checked + .check-box::after {
+  content: "";
+  position: absolute;
+  left: 5px; top: 2px;
+  width: 4px; height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+
 .check-main {
   display: flex;
   flex-direction: column;
@@ -595,6 +616,14 @@ input[type="text"]::placeholder { color: #5b6478; }
 }
 
 .result-link:hover { text-decoration: underline; }
+
+.result-note {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #16261a;
+  font-size: 11.5px;
+  color: #8fae97;
+}
 
 /* ---------------- 提示 ---------------- */
 .toast {

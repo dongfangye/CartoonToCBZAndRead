@@ -190,13 +190,16 @@ def free_space(path: str) -> int:
 
 
 def pack(folder: str, formats: list, keep_names: bool = False,
+         delete_source: bool = False,
          progress=None, cancel_event: threading.Event | None = None) -> dict:
     """打包文件夹为一种或多种格式。
 
-    formats      例：["cbz", "zip"]；内容完全一致时只写一次、再复制，
-                 避免同一份数据写两遍。
-    progress     callback(dict)，字段：done / total / current / bytes
-    cancel_event 置位后在下个文件处中止并删除半成品
+    formats        例：["cbz", "zip"]；内容完全一致时只写一次、再复制，
+                   避免同一份数据写两遍。
+    delete_source  打包成功后删除源文件夹里的原图；文件夹空了就一并删掉。
+                   只删本次打包进去的那些图片，不碰其它文件。
+    progress       callback(dict)，字段：done / total / current / bytes
+    cancel_event   置位后在下个文件处中止并删除半成品
     """
     info = scan(folder)
     if not info.get("ok"):
@@ -271,14 +274,52 @@ def pack(folder: str, formats: list, keep_names: bool = False,
         produced.append({"format": fmt, "path": dst, "size": os.path.getsize(dst)})
 
     elapsed = time.time() - started
-    return {
+    result = {
         "ok": True,
         "produced": produced,
         "count": n,
         "bytes": total_bytes,
         "elapsed": round(elapsed, 2),
         "folder": folder,
+        "deleted": 0,
+        "delete_errors": [],
+        "removed_folder": False,
     }
+
+    if delete_source:
+        result.update(_delete_sources(folder, images))
+
+    return result
+
+
+def _delete_sources(folder: str, images: list) -> dict:
+    """删掉刚打包过的原图，文件夹空了再删文件夹。
+
+    只处理本次列进包里的文件名，不递归、不碰其它文件；
+    任何一张删不掉都只记录下来，不影响已经生成好的包。
+    """
+    deleted = 0
+    errors = []
+    for im in images:
+        path = os.path.join(folder, im["name"])
+        try:
+            os.remove(path)
+            deleted += 1
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            errors.append(f"{im['name']}：{exc}")
+
+    removed_folder = False
+    try:
+        if not os.listdir(folder):
+            os.rmdir(folder)
+            removed_folder = True
+    except OSError:
+        pass
+
+    return {"deleted": deleted, "delete_errors": errors,
+            "removed_folder": removed_folder}
 
 
 def _silent_remove(path: str):

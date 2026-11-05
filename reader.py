@@ -48,6 +48,9 @@ def _ctype(name: str) -> str:
     return CONTENT_TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
 
 
+ARCHIVE_EXTS = {".cbz", ".zip"}
+
+
 def _archive_pages(zf: zipfile.ZipFile) -> list:
     """包内的图片条目，按自然顺序排列（001.jpg < 002.jpg < 010.jpg）。"""
     infos = [i for i in zf.infolist()
@@ -63,14 +66,67 @@ def _folder_pages(folder: str) -> list:
     return [{"name": im["name"], "size": im["size"]} for im in info["images"]]
 
 
+def _shelf(folder: str) -> dict:
+    """列出一个文件夹里的漫画包与子文件夹（不递归）。
+
+    阅读器选文件夹时，如果里面没有散图，就把这些包列成“书架”，
+    解决“选了放满 cbz 的文件夹却提示没有图片”的问题。
+    """
+    archives, folders = [], []
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        folders.append({"kind": "folder", "name": entry.name,
+                                        "path": entry.path})
+                        continue
+                    if not entry.is_file(follow_symlinks=True):
+                        continue
+                except OSError:
+                    continue
+                ext = os.path.splitext(entry.name)[1].lower()
+                if ext not in ARCHIVE_EXTS:
+                    continue
+                try:
+                    st = entry.stat(follow_symlinks=True)
+                except OSError:
+                    continue
+                archives.append({
+                    "kind": "archive",
+                    "name": entry.name,
+                    "path": entry.path,
+                    "size": st.st_size,
+                    "bytes_text": packer.human_size(st.st_size),
+                })
+    except OSError as exc:
+        raise ReaderError(f"无法读取文件夹：{exc}") from exc
+
+    archives.sort(key=lambda x: packer.natural_key(x["name"]))
+    folders.sort(key=lambda x: packer.natural_key(x["name"]))
+    return {
+        "archives": archives,
+        "folders": folders,
+        "items": archives + folders,
+        "archive_count": len(archives),
+    }
+
+
 def _trim_sessions():
-    """会话过多时关掉最久没用的那些，释放 zip 句柄。"""
+    """会话过多时关掉最久没用的那些，释放 zip 句柄。
+
+    注意：先在同一把锁里选出要关的会话，出锁后再逐个 _drop。
+    不能在持有 _lock 时调 _drop（它会再拿一次锁），否则第 9 次打开就死锁。
+    """
     with _lock:
-        if len(_sessions) <= MAX_SESSIONS:
+        excess = len(_sessions) - MAX_SESSIONS
+        if excess <= 0:
             return
         ordered = sorted(_sessions.values(), key=lambda s: s["touched"])
-        for sess in ordered[:len(_sessions) - MAX_SESSIONS]:
-            _drop(sess["id"])
+        victims = [sess["id"] for sess in ordered[:excess]]
+
+    for sid in victims:
+        _drop(sid)
 
 
 def _drop(sid: str):
@@ -90,15 +146,35 @@ def open_path(raw_path: str) -> dict:
     if not path:
         return {"ok": False, "error": "请选择一个 CBZ / ZIP 文件"}
     if os.path.isdir(path):
+        info = packer.scan(path)
+        if not info.get("ok"):
+            return {"ok": False, "error": info.get("error") or "无法读取文件夹"}
+        if info["images"]:
+            pages = [{"name": im["name"], "size": im["size"]} for im in info["images"]]
+            sid = _remember({"kind": "folder", "path": path,
+                             "name": os.path.basename(path) or path,
+                             "pages": pages, "folder": path, "zf": None})
+            return _public(sid, pages, path, "folder")
+
+        # 没有散图：看这个文件夹里有没有漫画包 / 子文件夹，有就列成书架
         try:
-            pages = _folder_pages(path)
+            shelf = _shelf(path)
         except ReaderError as exc:
             return {"ok": False, "error": str(exc)}
-        if not pages:
-            return {"ok": False, "error": "这个文件夹里没有图片"}
-        sid = _remember({"kind": "folder", "path": path, "name": os.path.basename(path) or path,
-                         "pages": pages, "folder": path, "zf": None})
-        return _public(sid, pages, path, "folder")
+        if not shelf["items"]:
+            return {"ok": False, "error": "这个文件夹里没有图片，也没有 CBZ / ZIP 漫画包"}
+        if shelf["archive_count"] == 1 and not shelf["folders"]:
+            return open_path(shelf["archives"][0]["path"])
+        return {
+            "ok": True,
+            "kind": "library",
+            "path": path,
+            "name": os.path.basename(path.rstrip("\\/")) or path,
+            "parent": os.path.dirname(path.rstrip("\\/")),
+            "items": shelf["items"],
+            "archive_count": shelf["archive_count"],
+            "folder_count": len(shelf["folders"]),
+        }
 
     if not os.path.isfile(path):
         return {"ok": False, "error": f"文件不存在：{path}"}

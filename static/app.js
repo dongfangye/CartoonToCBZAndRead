@@ -205,6 +205,15 @@ async function start() {
   const fmts = formatsSelected();
   if (!fmts.length) { toast("请至少选择一种导出格式"); return; }
 
+  const del = $("#delete-source").checked;
+  if (del) {
+    const ok = confirm(
+      `打包成功后会删除「${info.folder}」里的 ${info.count} 张原图。\n` +
+      `文件夹空了会一并删除，此操作不可撤销。\n\n确定继续吗？`
+    );
+    if (!ok) return;
+  }
+
   const btn = $("#btn-start");
   btn.disabled = true;
   btn.textContent = "打包中…";
@@ -216,6 +225,7 @@ async function start() {
       path: info.folder,
       formats: fmts,
       keep_names: $("#keep-names").checked,
+      delete_source: $("#delete-source").checked,
     });
     if (!r.ok) throw new Error(r.error || "启动失败");
     state.jobId = r.job;
@@ -317,6 +327,28 @@ function renderResult(result) {
     row.append(name, size, btn, read);
     box.appendChild(row);
   });
+
+  if (result.deleted || (result.delete_errors || []).length || result.removed_folder) {
+    const note = document.createElement("div");
+    note.className = "result-note";
+    const bits = [];
+    if (result.deleted) bits.push(`已删除 ${result.deleted} 张原图`);
+    if (result.removed_folder) bits.push("空文件夹已一并删除");
+    if ((result.delete_errors || []).length) {
+      bits.push(`${result.delete_errors.length} 张删除失败`);
+      note.title = result.delete_errors.join("\n");
+    }
+    note.textContent = bits.join(" · ");
+    box.appendChild(note);
+
+    // 原图已经没了，扫描结果不再有效
+    state.info = null;
+    $("#path").value = "";
+    $("#summary").textContent = "原图已删除，可以重新选择文件夹";
+    localStorage.removeItem("comicpack.path");
+    renderList();
+  }
+
   resetButtons();
 }
 
@@ -346,6 +378,10 @@ $("#btn-cancel").addEventListener("click", cancel);
 $("#keep-names").addEventListener("change", () => {
   localStorage.setItem("comicpack.keep", $("#keep-names").checked ? "1" : "0");
   renderList();
+});
+
+$("#delete-source").addEventListener("change", () => {
+  localStorage.setItem("comicpack.delete", $("#delete-source").checked ? "1" : "0");
 });
 
 document.querySelectorAll('input[name="fmt"]').forEach((c) => {
@@ -382,6 +418,7 @@ $("#btn-quit").addEventListener("click", async () => {
     if (savedFmts.length) c.checked = savedFmts.includes(c.value);
   });
   $("#keep-names").checked = localStorage.getItem("comicpack.keep") === "1";
+  $("#delete-source").checked = localStorage.getItem("comicpack.delete") === "1";
 
   const savedPath = localStorage.getItem("comicpack.path");
   const urlPath = new URLSearchParams(location.search).get("path");

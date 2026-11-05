@@ -87,6 +87,16 @@
       <p class="tip">与原文件夹同级；重名自动加 <code>_1</code>，不覆盖已有文件。</p>
     </div>
 
+    <div class="group">
+      <div class="group-title">清理原图 <span class="sub">可选</span></div>
+      <label class="check check-danger">
+        <input type="checkbox" id="delete-source">
+        <span class="check-box"></span>
+        <span class="check-main">打包后删除原图片<em>只删放进包里的那些图；文件夹空了会一并删除，不可撤销</em></span>
+      </label>
+      <p class="tip">只在打包成功之后执行；打包失败或取消时原图保持不动。</p>
+    </div>
+
     <div class="spacer"></div>
 
     <div id="progress-box" class="progress-box hidden">

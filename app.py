@@ -121,9 +121,10 @@ def _public_job(job: dict) -> dict:
     return {k: v for k, v in job.items() if k != "cancel"}
 
 
-def _run_job(job, folder, formats, keep_names, on_progress, cancel):
+def _run_job(job, folder, formats, keep_names, delete_source, on_progress, cancel):
     try:
         res = packer.pack(folder, formats, keep_names=keep_names,
+                          delete_source=delete_source,
                           progress=on_progress, cancel_event=cancel)
         with _jobs_lock:
             if res.get("cancelled"):
@@ -140,7 +141,8 @@ def _run_job(job, folder, formats, keep_names, on_progress, cancel):
             job["finished"] = time.time()
 
 
-def start_job(folder: str, formats: list, keep_names: bool) -> str:
+def start_job(folder: str, formats: list, keep_names: bool,
+              delete_source: bool = False) -> str:
     job_id = uuid.uuid4().hex[:12]
     cancel = threading.Event()
     job = {
@@ -162,7 +164,8 @@ def start_job(folder: str, formats: list, keep_names: bool) -> str:
             job["total_bytes"] = p.get("total_bytes", job["total_bytes"])
 
     threading.Thread(target=_run_job, daemon=True,
-                     args=(job, folder, formats, keep_names, on_progress, cancel)).start()
+                     args=(job, folder, formats, keep_names, delete_source,
+                           on_progress, cancel)).start()
     return job_id
 
 
@@ -277,7 +280,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "error": "请选择有效的文件夹"})
                 if not formats:
                     return self._json({"ok": False, "error": "请至少选择一种导出格式"})
-                jid = start_job(folder, formats, bool(data.get("keep_names")))
+                jid = start_job(folder, formats, bool(data.get("keep_names")),
+                                bool(data.get("delete_source")))
                 return self._json({"ok": True, "job": jid})
             if path.startswith("/api/cancel/"):
                 jid = path.rsplit("/", 1)[-1]
