@@ -20,6 +20,9 @@ const state = {
   zoom: 1,
   libraryPath: null,
   scrollBuiltFor: null,
+  chapters: [],
+  chapterIndex: -1,
+  sidebarOpen: true,
   wheelAt: 0,
   lastScroll: 0,
 };
@@ -107,6 +110,8 @@ async function openDoc(r) {
   state.index = 0;
   state.libraryPath = null;
   state.scrollBuiltFor = null;
+  state.chapters = r.chapters || [];
+  state.chapterIndex = typeof r.chapter_index === "number" ? r.chapter_index : -1;
 
   $("#doc-name").textContent = r.name;
   $("#doc-name").title = r.path;
@@ -130,6 +135,8 @@ async function openDoc(r) {
   $("#empty").classList.add("hidden");
   $("#library").classList.add("hidden");
   renderView();
+  renderChapters();
+  updateDocBadge();
 
   const saved = parseInt(localStorage.getItem(posKey(r.path)) || "0", 10) || 0;
   const start = Number.isFinite(asked) && asked > 0
@@ -148,6 +155,9 @@ function showLibrary(r) {
   state.index = 0;
   state.scrollBuiltFor = null;
   state.libraryPath = r.path;
+  state.chapters = [];
+  state.chapterIndex = -1;
+  $("#chapters").classList.add("hidden");
 
   $("#empty").classList.add("hidden");
   $("#canvas").classList.add("hidden");
@@ -195,6 +205,83 @@ function showLibrary(r) {
     li.addEventListener("click", () => openPath(item.path));
     list.appendChild(li);
   });
+}
+
+/* ---------------- 章节目录 ---------------- */
+function updateDocBadge() {
+  let text = `共 ${state.pages.length} 页`;
+  if (state.chapters.length > 1 && state.chapterIndex >= 0) {
+    text += ` · 第 ${state.chapterIndex + 1}/${state.chapters.length} 话`;
+  }
+  $("#doc-count").textContent = text;
+}
+
+function renderChapters() {
+  const list = $("#chapter-list");
+  const total = state.chapters.length;
+  list.innerHTML = "";
+  $("#chapters-count").textContent = String(total);
+
+  if (!total) {
+    $("#chapters").classList.add("hidden");
+    $("#btn-chapters").disabled = true;
+    return;
+  }
+
+  state.chapters.forEach((ch, i) => {
+    const li = document.createElement("li");
+    if (i === state.chapterIndex) li.className = "active";
+    li.title = ch.path;
+
+    const idx = document.createElement("span");
+    idx.className = "chapter-idx";
+    idx.textContent = String(i + 1);
+
+    const name = document.createElement("span");
+    name.className = "chapter-name";
+    name.textContent = ch.name;
+
+    li.append(idx, name);
+    li.addEventListener("click", () => {
+      if (i !== state.chapterIndex) openPath(ch.path);
+    });
+    list.appendChild(li);
+  });
+
+  const active = list.querySelector("li.active");
+  if (active) active.scrollIntoView({ block: "nearest" });
+
+  $("#btn-prev-chapter").disabled = state.chapterIndex <= 0;
+  $("#btn-next-chapter").disabled = state.chapterIndex < 0 || state.chapterIndex >= total - 1;
+  updateSidebarVisibility();
+}
+
+function updateSidebarVisibility() {
+  const canShow = state.chapters.length > 1;
+  const show = canShow && state.sidebarOpen;
+  $("#chapters").classList.toggle("hidden", !show);
+  $("#btn-chapters").disabled = !canShow;
+  $("#btn-chapters").classList.toggle("active", show);
+}
+
+function setSidebar(open) {
+  state.sidebarOpen = open;
+  localStorage.setItem("comicpack.sidebar", open ? "1" : "0");
+  updateSidebarVisibility();
+}
+
+function nextChapter() {
+  if (state.chapterIndex >= 0 && state.chapterIndex < state.chapters.length - 1) {
+    return openPath(state.chapters[state.chapterIndex + 1].path);
+  }
+  toast("已经是最后一话了");
+}
+
+function prevChapter() {
+  if (state.chapterIndex > 0) {
+    return openPath(state.chapters[state.chapterIndex - 1].path);
+  }
+  toast("已经是第一话了");
 }
 
 /* ---------------- 视图切换 ---------------- */
@@ -254,7 +341,15 @@ function step(dir) {
   return goTo(state.index + dir);
 }
 
-function next() { step(1); }
+function next() {
+  if (!state.pages.length) return;
+  if ($("#btn-next").disabled) {           // 本话最后一页
+    const nxt = state.chapters[state.chapterIndex + 1];
+    if (nxt) toast("本话最后一页，按 n 看下一话：" + nxt.name);
+    return;
+  }
+  step(1);
+}
 function prev() { step(-1); }
 
 function savePos() {
@@ -539,6 +634,11 @@ $("#btn-mode-single").addEventListener("click", () => setMode("single"));
 $("#btn-mode-double").addEventListener("click", () => setMode("double"));
 $("#btn-mode-scroll").addEventListener("click", () => setMode("scroll"));
 
+$("#btn-chapters").addEventListener("click", () => setSidebar(!state.sidebarOpen));
+$("#btn-chapters-hide").addEventListener("click", () => setSidebar(false));
+$("#btn-next-chapter").addEventListener("click", nextChapter);
+$("#btn-prev-chapter").addEventListener("click", prevChapter);
+
 $("#btn-zoom-in").addEventListener("click", () => zoomBy(ZOOM_STEP));
 $("#btn-zoom-out").addEventListener("click", () => zoomBy(1 / ZOOM_STEP));
 $("#btn-fit-page").addEventListener("click", () => setFit("page"));
@@ -616,6 +716,8 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault(); toggleFull();
   } else if (k === "o" || k === "O") {
     e.preventDefault(); openDialog("file");
+  } else if (k === "n" || k === "N") {
+    e.preventDefault(); nextChapter();
   }
 });
 
@@ -645,6 +747,7 @@ $("#btn-quit").addEventListener("click", async () => {
     : (localStorage.getItem("comicpack.mode") || "single");
   if (!["single", "double", "scroll"].includes(state.mode)) state.mode = "single";
   state.coverSolo = localStorage.getItem("comicpack.coversolo") !== "0";
+  state.sidebarOpen = localStorage.getItem("comicpack.sidebar") !== "0";
   $("#cover-solo").checked = state.coverSolo;
   document.querySelectorAll(".mode-btn").forEach((b) => {
     b.classList.toggle("active", b.id === "btn-mode-" + state.mode);

@@ -51,7 +51,8 @@ body { overflow: hidden; }
 .mode-btn { padding: 0 9px; font-size: 11.5px; }
 
 .mode-btn.active,
-.fit-btn.active {
+.fit-btn.active,
+.btn.active {
   background: #26364f;
   border-color: #3a5b8c;
   color: #cfe0ff;
@@ -97,6 +98,12 @@ body { overflow: hidden; }
 }
 
 /* ---------------- 阅读区 ---------------- */
+.reader-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
 .stage {
   flex: 1 1 auto;
   min-height: 0;
@@ -259,6 +266,114 @@ body { overflow: hidden; }
   color: #5f6a80;
   font-size: 13px;
 }
+
+/* ---------------- 章节目录侧边栏 ---------------- */
+.chapters {
+  flex: 0 0 244px;
+  width: 244px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line-soft);
+  background: #0b0e13;
+}
+
+.chapters-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.chapters-title {
+  font-size: 11.5px;
+  letter-spacing: .6px;
+  color: #9aa4b8;
+  text-transform: uppercase;
+}
+
+.chapters-count {
+  font-size: 11px;
+  color: #6c7689;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter-x {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6c7689;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chapter-x:hover { color: #fff; background: #1b212c; }
+
+.chapter-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+
+.chapter-list::-webkit-scrollbar { width: 8px; }
+.chapter-list::-webkit-scrollbar-thumb {
+  background: #2a3140; border-radius: 8px; border: 2px solid #0b0e13;
+}
+
+.chapter-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #c3cad8;
+  user-select: none;
+}
+
+.chapter-list li:hover { background: #151b25; }
+
+.chapter-list li.active {
+  background: #1b2a42;
+  color: #dbe8ff;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.chapter-idx {
+  width: 22px;
+  text-align: right;
+  font-size: 11px;
+  color: #5f6a80;
+  font-variant-numeric: tabular-nums;
+}
+
+.chapter-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chapters-foot {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.chapters-foot .btn { flex: 1 1 0; padding: 0 8px; }
 
 /* ---------------- 空状态 ---------------- */
 .reader-empty {

@@ -66,6 +66,42 @@ def _folder_pages(folder: str) -> list:
     return [{"name": im["name"], "size": im["size"]} for im in info["images"]]
 
 
+def _chapters(folder: str, current: str) -> tuple:
+    """同一目录下的所有漫画包，按名字自然排序；并给出当前这本的序号。
+
+    阅读器用它做「章节侧边栏 / 下一话」：打开一本，就知道兄弟章节有哪些。
+    """
+    items = []
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                try:
+                    if not entry.is_file(follow_symlinks=True):
+                        continue
+                except OSError:
+                    continue
+                if os.path.splitext(entry.name)[1].lower() not in ARCHIVE_EXTS:
+                    continue
+                try:
+                    st = entry.stat(follow_symlinks=True)
+                except OSError:
+                    continue
+                items.append({
+                    "name": entry.name,
+                    "path": entry.path,
+                    "size": st.st_size,
+                    "bytes_text": packer.human_size(st.st_size),
+                })
+    except OSError:
+        return [], -1
+
+    items.sort(key=lambda x: packer.natural_key(x["name"]))
+    current_norm = os.path.normcase(os.path.abspath(current))
+    index = next((i for i, it in enumerate(items)
+                  if os.path.normcase(os.path.abspath(it["path"])) == current_norm), -1)
+    return items, index
+
+
 def _shelf(folder: str) -> dict:
     """列出一个文件夹里的漫画包与子文件夹（不递归）。
 
@@ -146,6 +182,15 @@ def open_path(raw_path: str) -> dict:
     if not path:
         return {"ok": False, "error": "请选择一个 CBZ / ZIP 文件"}
     if os.path.isdir(path):
+        try:
+            shelf = _shelf(path)
+        except ReaderError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        # 文件夹里有漫画包：直接打开第一本，同目录的其它包作为章节返回
+        if shelf["archives"]:
+            return open_path(shelf["archives"][0]["path"])
+
         info = packer.scan(path)
         if not info.get("ok"):
             return {"ok": False, "error": info.get("error") or "无法读取文件夹"}
@@ -156,25 +201,19 @@ def open_path(raw_path: str) -> dict:
                              "pages": pages, "folder": path, "zf": None})
             return _public(sid, pages, path, "folder")
 
-        # 没有散图：看这个文件夹里有没有漫画包 / 子文件夹，有就列成书架
-        try:
-            shelf = _shelf(path)
-        except ReaderError as exc:
-            return {"ok": False, "error": str(exc)}
-        if not shelf["items"]:
-            return {"ok": False, "error": "这个文件夹里没有图片，也没有 CBZ / ZIP 漫画包"}
-        if shelf["archive_count"] == 1 and not shelf["folders"]:
-            return open_path(shelf["archives"][0]["path"])
-        return {
-            "ok": True,
-            "kind": "library",
-            "path": path,
-            "name": os.path.basename(path.rstrip("\\/")) or path,
-            "parent": os.path.dirname(path.rstrip("\\/")),
-            "items": shelf["items"],
-            "archive_count": shelf["archive_count"],
-            "folder_count": len(shelf["folders"]),
-        }
+        # 只有子文件夹：列成书架继续往下找
+        if shelf["folders"]:
+            return {
+                "ok": True,
+                "kind": "library",
+                "path": path,
+                "name": os.path.basename(path.rstrip("\\/")) or path,
+                "parent": os.path.dirname(path.rstrip("\\/")),
+                "items": shelf["folders"],
+                "archive_count": 0,
+                "folder_count": len(shelf["folders"]),
+            }
+        return {"ok": False, "error": "这个文件夹里没有图片，也没有 CBZ / ZIP 漫画包"}
 
     if not os.path.isfile(path):
         return {"ok": False, "error": f"文件不存在：{path}"}
@@ -193,9 +232,10 @@ def open_path(raw_path: str) -> dict:
         zf.close()
         return {"ok": False, "error": "这个包里没有图片"}
 
+    chapters, chapter_index = _chapters(os.path.dirname(path), path)
     sid = _remember({"kind": "zip", "path": path, "name": os.path.basename(path),
                      "pages": pages, "folder": "", "zf": zf})
-    return _public(sid, pages, path, "zip")
+    return _public(sid, pages, path, "zip", chapters, chapter_index)
 
 
 def _remember(sess: dict) -> str:
@@ -207,17 +247,23 @@ def _remember(sess: dict) -> str:
     return sid
 
 
-def _public(sid: str, pages: list, path: str, kind: str) -> dict:
+def _public(sid: str, pages: list, path: str, kind: str,
+            chapters: list | None = None, chapter_index: int = -1) -> dict:
     total = sum(p["size"] for p in pages)
+    chapters = chapters or []
     return {
         "ok": True,
         "id": sid,
         "kind": kind,
         "path": path,
         "name": os.path.basename(path) or path,
+        "folder": os.path.dirname(path),
         "page_count": len(pages),
         "bytes": total,
         "bytes_text": packer.human_size(total),
+        "chapters": chapters,
+        "chapter_count": len(chapters),
+        "chapter_index": chapter_index,
         "pages": [{"index": i, "name": p["name"], "size": p["size"],
                    "bytes_text": packer.human_size(p["size"])}
                   for i, p in enumerate(pages)],

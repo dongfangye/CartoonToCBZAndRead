@@ -61,11 +61,13 @@
 
     <span class="sep"></span>
 
+    <button id="btn-chapters" class="btn btn-sm" title="章节目录">目录</button>
     <button id="btn-full" class="btn btn-sm" title="全屏（F）">全屏</button>
     <button id="btn-quit" class="ghost">关闭服务</button>
   </div>
 </header>
 
+<div class="reader-body">
 <main id="stage" class="stage">
   <div id="empty" class="reader-empty">
     <div class="empty-icon">📖</div>
@@ -103,6 +105,20 @@
   <div id="spinner" class="spinner hidden"><span></span></div>
 </main>
 
+<aside id="chapters" class="chapters hidden" aria-label="章节目录">
+  <div class="chapters-head">
+    <span class="chapters-title">目录</span>
+    <span id="chapters-count" class="chapters-count">0</span>
+    <button id="btn-chapters-hide" class="chapter-x" title="收起目录">×</button>
+  </div>
+  <ul id="chapter-list" class="chapter-list"></ul>
+  <div class="chapters-foot">
+    <button id="btn-prev-chapter" class="btn btn-sm">‹ 上一话</button>
+    <button id="btn-next-chapter" class="btn btn-sm btn-primary">下一话 ›</button>
+  </div>
+</aside>
+</div>
+
 <footer class="reader-foot">
   <input id="slider" type="range" min="1" max="1" value="1" aria-label="跳转页码">
   <label id="cover-solo-wrap" class="mini-check hidden">
@@ -110,7 +126,7 @@
   </label>
   <div class="foot-info">
     <span id="page-meta">未打开文件</span>
-    <span class="hint">← → 翻页 · + − 缩放 · F 全屏</span>
+    <span class="hint">← → 翻页 · + − 缩放 · n 下一话 · F 全屏</span>
   </div>
 </footer>
 
