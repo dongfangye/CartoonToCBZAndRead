@@ -199,8 +199,6 @@ async function openDoc(r) {
 
   $("#doc-name").textContent = r.name;
   $("#doc-name").title = r.path;
-  $("#doc-count").textContent = `共 ${r.page_count} 页`;
-  $("#doc-count").classList.remove("hidden");
   $("#page-total").textContent = r.page_count;
   $("#slider").max = String(r.page_count);
   $("#scroll").innerHTML = "";
@@ -256,6 +254,7 @@ async function loadShelf(path) {
       name: r.name,
       items: r.items || [],
       count: r.count || 0,
+      chapters: r.chapters || 0,
       folders: r.folders || 0,
     };
     state.shelfPage = shelfPageFor(r.path);
@@ -310,7 +309,7 @@ function renderShelf() {
 
   $("#doc-name").textContent = "书架 · " + (shelf.name || "");
   $("#doc-name").title = shelf.path;
-  $("#doc-count").classList.add("hidden");
+  setDocBadge(shelf.chapters ? `共 ${shelf.chapters} 话` : "", true);
   $("#page-meta").textContent = shelf.count
     ? `${shelf.count} 本 · 共 ${pages} 页`
     : "这个文件夹（含子文件夹）里没有 cbz / zip";
@@ -364,7 +363,19 @@ function bookCard(item) {
 
   const meta = document.createElement("div");
   meta.className = "shelf-meta";
-  meta.textContent = item.dir ? `${item.dir} · ${item.size_text}` : item.size_text;
+  const bits = [];
+  if (item.dir) bits.push(item.dir);
+  if (item.count > 1) bits.push(`${item.count} 话`);
+  bits.push(item.size_text);
+  meta.textContent = bits.join(" · ");
+
+  const badge = item.count > 1 ? document.createElement("span") : null;
+  if (badge) {
+    badge.className = "shelf-badge";
+    badge.textContent = String(item.count);
+    badge.title = `共 ${item.count} 话`;
+    coverBox.appendChild(badge);
+  }
 
   card.append(coverBox, name, meta);
   card.addEventListener("click", () => openBook(item));
@@ -402,12 +413,21 @@ function backToShelf() {
 }
 
 /* ---------------- 章节目录 ---------------- */
+function setDocBadge(text, muted) {
+  const el = $("#doc-count");
+  el.textContent = text || "";
+  el.classList.toggle("hidden", !text);
+  el.classList.toggle("muted", !!muted);
+}
+
+/* 阅读时徽章显示“话数”（之前显示的是页数） */
 function updateDocBadge() {
-  let text = `共 ${state.pages.length} 页`;
-  if (state.chapters.length > 1 && state.chapterIndex >= 0) {
-    text += ` · 第 ${state.chapterIndex + 1}/${state.chapters.length} 话`;
+  const total = state.chapters.length;
+  if (total > 1 && state.chapterIndex >= 0) {
+    setDocBadge(`第 ${state.chapterIndex + 1}/${total} 话`, false);
+  } else {
+    setDocBadge(`共 ${Math.max(1, total)} 话`, false);
   }
-  $("#doc-count").textContent = text;
 }
 
 function renderChapters() {
@@ -1012,6 +1032,7 @@ async function bootPath(path) {
       name: r.name,
       items: r.items || [],
       count: r.count || 0,
+      chapters: r.chapters || 0,
       folders: r.folders || 0,
     };
     state.shelfPage = shelfPageFor(r.path);

@@ -150,16 +150,23 @@ def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
                 except OSError:
                     continue
                 rel = os.path.relpath(full, base)
-                cover = "file" if _sibling_cover(full) else (
-                    "zip" if _zip_first_image_info(full) else "")
+                cover_path = _sibling_cover(full)
+                if cover_path:
+                    cover = "file"
+                elif _zip_first_image_info(full):
+                    cover = "zip"
+                else:
+                    cover = ""
                 items.append({
                     "name": fname,
                     "path": full,
                     "rel": rel,
                     "dir": os.path.dirname(rel) if os.path.dirname(rel) != "." else "",
+                    "folder": os.path.basename(dirpath),
                     "size": st.st_size,
                     "size_text": packer.human_size(st.st_size),
                     "cover": cover,
+                    "cover_path": cover_path,
                 })
                 if len(items) >= max_books:
                     break
@@ -171,13 +178,47 @@ def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
     items.sort(key=lambda it: (it["rel"].count(os.sep),
                                packer.natural_key(it["dir"]),
                                packer.natural_key(it["name"])))
+
+    # 一个封面对应多本 cbz（同一部漫画的不同单元集）→ 合并成一张封面卡
+    groups = {}
+    for book in items:
+        if book["cover"] == "file":
+            key = ("cover", os.path.normcase(book["cover_path"]))
+        else:
+            key = ("book", os.path.normcase(book["path"]))
+        groups.setdefault(key, []).append(book)
+
+    shelf = []
+    for books in groups.values():
+        books.sort(key=lambda b: packer.natural_key(b["name"]))
+        first = books[0]
+        multi = len(books) > 1
+        total = sum(b["size"] for b in books)
+        shelf.append({
+            "name": first["folder"] if multi else first["name"],
+            "dir": first["dir"],
+            "rel": first["rel"],
+            "path": first["path"],                 # 点开先读第一话
+            "cover": first["cover"],
+            "count": len(books),                   # 这个封面对应几话
+            "size": total,
+            "size_text": packer.human_size(total),
+            "chapters": [{"name": b["name"], "path": b["path"]} for b in books],
+        })
+
+    shelf.sort(key=lambda it: (
+        0 if not it["dir"] else it["dir"].count(os.sep) + 1,
+        packer.natural_key(it["dir"]),
+        packer.natural_key(it["name"])))
+
     return {
         "ok": True,
         "kind": "shelf",
         "path": path,
         "name": os.path.basename(path.rstrip("\\/")) or path,
-        "items": items,
-        "count": len(items),
+        "items": shelf,
+        "count": len(shelf),
+        "chapters": sum(it["count"] for it in shelf),
         "folders": folders,
     }
 

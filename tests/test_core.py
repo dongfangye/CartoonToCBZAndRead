@@ -201,6 +201,28 @@ class LibraryTest(unittest.TestCase):
 
             self.assertIsNone(reader.cover_bytes(os.path.join(tmp, "note.txt")))
 
+    def test_same_cover_groups_chapters(self):
+        """一个封面对应多本 cbz：封面墙只出现一张，count 就是话数。"""
+        with workdir() as tmp:
+            folder = os.path.join(tmp, "葬送的芙莉莲")
+            os.makedirs(folder)
+            for name in ("第01话.cbz", "第02话.cbz", "第10话.cbz"):
+                self._make_cbz(folder, name)
+            with open(os.path.join(folder, "cover.jpg"), "wb") as fh:
+                fh.write(JPG)
+
+            res = reader.scan_library(tmp)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["count"], 1)          # 只出现一张封面
+            self.assertEqual(res["chapters"], 3)
+
+            group = res["items"][0]
+            self.assertEqual(group["name"], "葬送的芙莉莲")
+            self.assertEqual(group["count"], 3)
+            self.assertEqual([c["name"] for c in group["chapters"]],
+                             ["第01话.cbz", "第02话.cbz", "第10话.cbz"])
+            self.assertTrue(group["path"].endswith("第01话.cbz"))   # 点开先读第一话
+
     def test_empty_shelf(self):
         with workdir() as tmp:
             res = reader.scan_library(tmp)
