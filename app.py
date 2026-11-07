@@ -15,7 +15,7 @@ app.py — ComicPack 本地 Web 服务
   GET  /api/job/<id>           查询打包进度
   POST /api/cancel/<id>        取消打包
   POST /api/reveal             在资源管理器中定位生成的文件
-  POST /api/reader/browse      弹出选文件 / 选目录框（mode=file|folder）
+  POST /api/reader/list        给选择弹窗列目录（子文件夹 + cbz，path 空则从主目录开始）
   POST /api/reader/open        打开漫画包或文件夹，返回阅读会话
   GET  /api/reader/page/<sid>/<n>  取第 n 页图片（0 基）
   POST /api/reader/close/<sid> 关闭阅读会话
@@ -70,40 +70,6 @@ def ask_folder(initial: str = "") -> dict:
             if initial and os.path.isdir(initial):
                 kw["initialdir"] = initial
             chosen = filedialog.askdirectory(**kw)
-            return {"ok": True, "path": packer.normalize_path(chosen) if chosen else "",
-                    "cancelled": not chosen}
-        except Exception as exc:
-            return {"ok": False, "error": f"打开选择框失败：{exc}"}
-        finally:
-            if root is not None:
-                try:
-                    root.destroy()
-                except Exception:
-                    pass
-
-
-# ---------------------------------------------------------------- 原生选文件
-def ask_file(initial: str = "") -> dict:
-    """选择要阅读的漫画包（CBZ / ZIP）。"""
-    with _dialog_lock:
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-        except Exception as exc:
-            return {"ok": False, "error": f"当前 Python 缺少 tkinter，无法弹出选择框：{exc}"}
-        root = None
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            root.update()
-            kw = {"parent": root, "title": "选择漫画包（CBZ / ZIP）", "mustexist": True,
-                  "filetypes": [("漫画包", "*.cbz *.zip"), ("ZIP 压缩包", "*.zip"), ("所有文件", "*.*")]}
-            if initial:
-                guess = initial if os.path.isdir(initial) else os.path.dirname(initial)
-                if guess and os.path.isdir(guess):
-                    kw["initialdir"] = guess
-            chosen = filedialog.askopenfilename(**kw)
             return {"ok": True, "path": packer.normalize_path(chosen) if chosen else "",
                     "cancelled": not chosen}
         except Exception as exc:
@@ -290,11 +256,8 @@ class Handler(BaseHTTPRequestHandler):
                     if job:
                         job["cancel"].set()
                 return self._json({"ok": bool(job)})
-            if path == "/api/reader/browse":
-                mode = (data.get("mode") or "file").lower()
-                if mode == "folder":
-                    return self._json(ask_folder(data.get("initial") or ""))
-                return self._json(ask_file(data.get("initial") or ""))
+            if path == "/api/reader/list":
+                return self._json(reader.list_dir(data.get("path") or ""))
             if path == "/api/reader/open":
                 return self._json(reader.open_path(data.get("path") or "",
                                                    bool(data.get("prefer_images"))))

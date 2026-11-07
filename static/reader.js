@@ -72,15 +72,94 @@ function parentOf(p) {
   return parent.length <= 2 ? (parent ? parent + "\\" : "") : parent;
 }
 
-/* ---------------- 打开 ---------------- */
-async function openDialog(mode) {
+/* ---------------- 选择弹窗（文件夹 + cbz 一起列） ---------------- */
+const picker = { mode: "file", path: "", parent: "" };
+
+function openDialog(mode) {
+  picker.mode = mode === "folder" ? "folder" : "file";
+  $("#picker-title").textContent = picker.mode === "folder" ? "打开文件夹" : "打开 cbz";
+  $("#picker-select").classList.toggle("hidden", picker.mode !== "folder");
+  $("#picker").classList.remove("hidden");
+
+  const start = state.path ? parentOf(state.path)
+    : (localStorage.getItem("comicpack.picker") || "");
+  loadPicker(start);
+}
+
+function closePicker() {
+  $("#picker").classList.add("hidden");
+}
+
+async function loadPicker(path) {
   try {
-    const r = await post("/api/reader/browse", { mode, initial: state.path || state.libraryPath || "" });
-    if (!r.ok) throw new Error(r.error || "无法打开选择框");
-    if (r.path) await openPath(r.path);
+    const r = await post("/api/reader/list", { path: path || "" });
+    if (!r.ok) { toast(r.error || "无法读取目录"); return; }
+    picker.path = r.path;
+    picker.parent = r.parent;
+    $("#picker-input").value = r.path;
+    if (r.path) localStorage.setItem("comicpack.picker", r.path);
+    renderPickerRoots(r.roots || []);
+    renderPickerEntries(r);
+    $("#picker-up").disabled = !r.parent;
+    $("#picker-select").disabled = !r.path;
+    $("#picker-hint").textContent = r.path
+      ? `${r.dir_count} 个文件夹 · ${r.file_count} 个 cbz`
+      : "选一个磁盘开始";
   } catch (e) {
     toast(e.message);
   }
+}
+
+function renderPickerRoots(roots) {
+  const box = $("#picker-roots");
+  box.innerHTML = "";
+  roots.forEach((root) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip";
+    btn.textContent = root.name;
+    btn.title = root.path;
+    btn.addEventListener("click", () => loadPicker(root.path));
+    box.appendChild(btn);
+  });
+}
+
+function renderPickerEntries(r) {
+  const list = $("#picker-list");
+  list.innerHTML = "";
+  if (!r.entries.length) {
+    const li = document.createElement("li");
+    li.className = "picker-empty";
+    li.textContent = r.path ? "这里没有子文件夹，也没有 cbz / zip 文件" : "选择上面的磁盘开始";
+    list.appendChild(li);
+    return;
+  }
+  r.entries.forEach((entry) => {
+    const li = document.createElement("li");
+    const icon = document.createElement("span");
+    icon.className = "pick-icon";
+    icon.textContent = entry.kind === "dir" ? "📁" : "📦";
+
+    const name = document.createElement("span");
+    name.className = "pick-name";
+    name.textContent = entry.name;
+    name.title = entry.path;
+
+    const meta = document.createElement("span");
+    meta.className = "pick-meta";
+    meta.textContent = entry.kind === "dir" ? "" : (entry.bytes_text || "");
+
+    li.append(icon, name, meta);
+    li.addEventListener("click", () => {
+      if (entry.kind === "dir") {
+        loadPicker(entry.path);
+      } else {
+        closePicker();
+        openPath(entry.path);
+      }
+    });
+    list.appendChild(li);
+  });
 }
 
 async function openPath(path, preferImages) {
@@ -624,6 +703,21 @@ $("#btn-open").addEventListener("click", () => openDialog("file"));
 $("#btn-empty-open").addEventListener("click", () => openDialog("file"));
 $("#btn-open-dir").addEventListener("click", () => openDialog("folder"));
 $("#btn-empty-dir").addEventListener("click", () => openDialog("folder"));
+
+$("#picker-close").addEventListener("click", closePicker);
+$("#picker-up").addEventListener("click", () => { if (picker.parent) loadPicker(picker.parent); });
+$("#picker-go").addEventListener("click", () => loadPicker($("#picker-input").value.trim()));
+$("#picker-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") loadPicker($("#picker-input").value.trim());
+});
+$("#picker-select").addEventListener("click", () => {
+  if (!picker.path) return;
+  closePicker();
+  openPath(picker.path);
+});
+$("#picker").addEventListener("click", (e) => {
+  if (e.target === $("#picker")) closePicker();
+});
 $("#btn-lib-up").addEventListener("click", () => {
   const up = parentOf(state.libraryPath);
   if (up) openPath(up);
@@ -697,6 +791,12 @@ $("#stage").addEventListener("wheel", (e) => {
 $("#stage").addEventListener("scroll", onScroll, { passive: true });
 
 window.addEventListener("keydown", (e) => {
+  const pickerOpen = !$("#picker").classList.contains("hidden");
+  if (e.key === "Escape") {
+    if (pickerOpen) closePicker();
+    return;
+  }
+  if (pickerOpen) return;                 // 弹窗打开时不响应翻页等快捷键
   if (e.target && e.target.matches("input, textarea, select")) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;

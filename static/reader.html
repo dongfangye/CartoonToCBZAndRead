@@ -28,7 +28,7 @@
   </nav>
 
   <div class="tools">
-    <button id="btn-open" class="btn btn-primary btn-sm">选择 cbz 文件…</button>
+    <button id="btn-open" class="btn btn-primary btn-sm">打开 cbz…</button>
     <button id="btn-open-dir" class="btn btn-sm">打开文件夹…</button>
 
     <span class="sep"></span>
@@ -68,14 +68,27 @@
 </header>
 
 <div class="reader-body">
+<aside id="chapters" class="chapters hidden" aria-label="章节目录">
+  <div class="chapters-head">
+    <span class="chapters-title">目录</span>
+    <span id="chapters-count" class="chapters-count">0</span>
+    <button id="btn-chapters-hide" class="chapter-x" title="收起目录">×</button>
+  </div>
+  <ul id="chapter-list" class="chapter-list"></ul>
+  <div class="chapters-foot">
+    <button id="btn-prev-chapter" class="btn btn-sm">‹ 上一话</button>
+    <button id="btn-next-chapter" class="btn btn-sm btn-primary">下一话 ›</button>
+  </div>
+</aside>
+
 <main id="stage" class="stage">
   <div id="empty" class="reader-empty">
     <div class="empty-icon">📖</div>
-    <h2>打开一个漫画包开始阅读</h2>
-    <p>「选择 cbz 文件」直接打开一本；「打开文件夹」会列出里面的<b>子文件夹</b>和 <b>.cbz / .zip</b>，
-       点哪本读哪本，同一文件夹里的其它包会出现在右侧「目录」里，方便连续看下一话。</p>
+    <h2>打开一个 cbz 开始阅读</h2>
+    <p>「打开 cbz」挑一本漫画包；「打开文件夹」的弹窗里同时列出<b>文件夹</b>和 <b>.cbz / .zip</b>，
+       点文件夹进去找、点包直接读。同一个文件夹里有多本时，左侧会出现目录，点一下就能换一本。</p>
     <div class="empty-actions">
-      <button id="btn-empty-open" class="btn btn-primary">选择 cbz 文件…</button>
+      <button id="btn-empty-open" class="btn btn-primary">打开 cbz…</button>
       <button id="btn-empty-dir" class="btn">打开文件夹…</button>
     </div>
     <p class="empty-hint">快捷键：← → 翻页 · + − 缩放 · 0 复位 · F 全屏 · O 打开</p>
@@ -104,19 +117,6 @@
 
   <div id="spinner" class="spinner hidden"><span></span></div>
 </main>
-
-<aside id="chapters" class="chapters hidden" aria-label="章节目录">
-  <div class="chapters-head">
-    <span class="chapters-title">目录</span>
-    <span id="chapters-count" class="chapters-count">0</span>
-    <button id="btn-chapters-hide" class="chapter-x" title="收起目录">×</button>
-  </div>
-  <ul id="chapter-list" class="chapter-list"></ul>
-  <div class="chapters-foot">
-    <button id="btn-prev-chapter" class="btn btn-sm">‹ 上一话</button>
-    <button id="btn-next-chapter" class="btn btn-sm btn-primary">下一话 ›</button>
-  </div>
-</aside>
 </div>
 
 <footer class="reader-foot">
@@ -129,6 +129,26 @@
     <span class="hint">← → 翻页 · + − 缩放 · n 下一话 · F 全屏</span>
   </div>
 </footer>
+
+<div id="picker" class="picker hidden" role="dialog" aria-modal="true" aria-label="选择文件">
+  <div class="picker-box">
+    <div class="picker-head">
+      <span id="picker-title">打开 cbz</span>
+      <button id="picker-close" class="chapter-x" title="关闭（Esc）">×</button>
+    </div>
+    <div class="picker-path">
+      <input id="picker-input" type="text" spellcheck="false" placeholder="粘贴路径，例如 D:\漫画">
+      <button id="picker-go" class="btn btn-sm">前往</button>
+    </div>
+    <div id="picker-roots" class="picker-roots"></div>
+    <ul id="picker-list" class="picker-list"></ul>
+    <div class="picker-foot">
+      <button id="picker-up" class="btn btn-sm">上一级</button>
+      <span id="picker-hint" class="picker-hint"></span>
+      <button id="picker-select" class="btn btn-sm btn-primary hidden">打开当前文件夹</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast"></div>
 <script src="/static/reader.js"></script>

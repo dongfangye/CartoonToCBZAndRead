@@ -148,6 +148,74 @@ def _shelf(folder: str) -> dict:
     }
 
 
+def _drives() -> list:
+    """可选磁盘根目录。"""
+    roots = []
+    try:
+        for d in os.listdrives():                       # Python 3.12+
+            roots.append({"name": d.rstrip("\\/"), "path": d})
+    except AttributeError:
+        for letter in "CDEFGHIJK":
+            path = f"{letter}:\\"
+            if os.path.exists(path):
+                roots.append({"name": f"{letter}:", "path": path})
+    return roots
+
+
+def list_dir(raw_path: str = "") -> dict:
+    """给阅读器的选择弹窗列目录：子文件夹 + cbz/zip 文件。
+
+    path 为空时从用户主目录开始（同时返回磁盘列表，方便跳到别的盘）。
+    """
+    roots = _drives()
+    path = packer.normalize_path(raw_path)
+    if not path:
+        home = os.path.expanduser("~")
+        if not os.path.isdir(home):
+            return {"ok": True, "path": "", "parent": "", "entries": [], "roots": roots,
+                    "dir_count": 0, "file_count": 0}
+        path = home                                              # 从主目录开始，别对着空列表发愣
+    if os.path.isfile(path):                            # 传进来的是文件：退到它的目录
+        path = os.path.dirname(path)
+    if not os.path.isdir(path):
+        return {"ok": False, "error": f"文件夹不存在：{path}", "roots": roots}
+
+    dirs, files = [], []
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        dirs.append({"kind": "dir", "name": entry.name, "path": entry.path})
+                    elif entry.is_file(follow_symlinks=True):
+                        if os.path.splitext(entry.name)[1].lower() not in ARCHIVE_EXTS:
+                            continue
+                        st = entry.stat(follow_symlinks=True)
+                        files.append({"kind": "file", "name": entry.name, "path": entry.path,
+                                      "size": st.st_size,
+                                      "bytes_text": packer.human_size(st.st_size)})
+                except OSError:
+                    continue
+    except OSError as exc:
+        return {"ok": False, "error": f"无法读取文件夹：{exc}", "roots": roots}
+
+    dirs.sort(key=lambda x: packer.natural_key(x["name"]))
+    files.sort(key=lambda x: packer.natural_key(x["name"]))
+    trimmed = path.rstrip("\\/")
+    parent = os.path.dirname(trimmed)
+    if parent == trimmed or not parent:
+        parent = ""
+    return {
+        "ok": True,
+        "path": path,
+        "parent": parent,
+        "entries": dirs + files,
+        "roots": roots,
+        "dir_count": len(dirs),
+        "file_count": len(files),
+    }
+
+
 def _trim_sessions():
     """会话过多时关掉最久没用的那些，释放 zip 句柄。
 

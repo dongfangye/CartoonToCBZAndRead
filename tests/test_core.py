@@ -311,6 +311,42 @@ class ReaderTest(unittest.TestCase):
             self.assertEqual(len(result["ids"]), reader.MAX_SESSIONS + 3)
             self.assertLessEqual(len(reader._sessions), reader.MAX_SESSIONS)
 
+    def test_list_dir_shows_folders_and_cbz(self):
+        with workdir() as tmp:
+            os.makedirs(os.path.join(tmp, "卷2"))
+            for name in ("第01话.cbz", "第02话.cbz"):
+                with open(os.path.join(tmp, name), "wb") as fh:
+                    fh.write(JPG)
+            with open(os.path.join(tmp, "notes.txt"), "wb") as fh:
+                fh.write(b"skip me")
+
+            res = reader.list_dir(tmp)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["dir_count"], 1)
+            self.assertEqual(res["file_count"], 2)
+            self.assertEqual([e["name"] for e in res["entries"]],
+                             ["卷2", "第01话.cbz", "第02话.cbz"])
+            self.assertEqual([e["kind"] for e in res["entries"]], ["dir", "file", "file"])
+
+    def test_list_dir_roots_and_errors(self):
+        roots = reader.list_dir("")
+        self.assertTrue(roots["ok"])
+        self.assertGreaterEqual(len(roots["roots"]), 1)      # 至少一个盘符
+
+        missing = reader.list_dir(r"C:\this\path\does\not\exist")
+        self.assertFalse(missing["ok"])
+        self.assertIn("不存在", missing["error"])
+
+    def test_list_dir_accepts_file_path(self):
+        with workdir() as tmp:
+            cbz = os.path.join(tmp, "第01话.cbz")
+            with open(cbz, "wb") as fh:
+                fh.write(JPG)
+            res = reader.list_dir(cbz)      # 传文件时退到它所在目录
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["path"], tmp)
+            self.assertEqual([e["name"] for e in res["entries"]], ["第01话.cbz"])
+
     def test_rejects_non_zip(self):
         with workdir() as tmp:
             bad = os.path.join(tmp, "fake.cbz")
@@ -374,6 +410,19 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("json", ctype)
         self.assertTrue(json.loads(body)["ok"])
+
+    def test_list_endpoint(self):
+        folder = os.path.join(self.tmp, "列表")
+        os.makedirs(os.path.join(folder, "子目录"))
+        with open(os.path.join(folder, "第04话.cbz"), "wb") as fh:
+            fh.write(JPG)
+        with open(os.path.join(folder, "ignore.txt"), "wb") as fh:
+            fh.write(b"skip")
+
+        res = self.post("/api/reader/list", {"path": folder})
+        self.assertTrue(res["ok"], res)
+        self.assertEqual([e["name"] for e in res["entries"]], ["子目录", "第04话.cbz"])
+        self.assertEqual((res["dir_count"], res["file_count"]), (1, 1))
 
     def test_pages_served(self):
         status, ctype, body = self.get("/reader")
