@@ -40,6 +40,7 @@ import time
 import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 import namer
 import packer
@@ -208,6 +209,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(path[len("/static/"):])
         if path == "/api/health":
             return self._json({"ok": True, "version": "1.1"})
+        if path == "/api/library/cover":
+            query = parse_qs(urlparse(self.path).query)
+            target = (query.get("path") or [""])[0]
+            data = reader.cover_bytes(target)
+            if not data:
+                return self._json({"ok": False, "error": "没有封面"}, 404)
+            body, ctype = data
+            return self._send(200, body, ctype, cache="public, max-age=3600")
         if path.startswith("/api/reader/page/"):
             parts = [p for p in path.split("/") if p]
             if len(parts) != 5:
@@ -270,6 +279,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/reader/close/"):
                 sid = path.rsplit("/", 1)[-1]
                 return self._json({"ok": reader.close(sid)})
+            if path == "/api/library/scan":
+                return self._json(reader.scan_library(data.get("path") or ""))
             if path == "/api/rename/scan":
                 return self._json(namer.scan(data.get("path") or ""))
             if path == "/api/rename/apply":

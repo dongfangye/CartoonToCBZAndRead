@@ -29,8 +29,8 @@
   </nav>
 
   <div class="tools">
-    <button id="btn-open" class="btn btn-primary btn-sm">打开 cbz…</button>
-    <button id="btn-open-dir" class="btn btn-sm">打开文件夹…</button>
+    <button id="btn-shelf" class="btn btn-sm hidden" title="返回封面列表">‹ 书架</button>
+    <button id="btn-open-dir" class="btn btn-primary btn-sm">打开漫画文件夹…</button>
 
     <span class="sep"></span>
 
@@ -84,26 +84,30 @@
 
 <main id="stage" class="stage">
   <div id="empty" class="reader-empty">
-    <div class="empty-icon">📖</div>
-    <h2>打开一个 cbz 开始阅读</h2>
-    <p>「打开 cbz」挑一本漫画包；「打开文件夹」的弹窗里同时列出<b>文件夹</b>和 <b>.cbz / .zip</b>，
-       点文件夹进去找、点包直接读。同一个文件夹里有多本时，左侧会出现目录，点一下就能换一本。</p>
+    <div class="empty-icon">📚</div>
+    <h2>打开一个漫画文件夹</h2>
+    <p>选中文件夹后会递归找出里面（含子文件夹）的所有 <b>.cbz</b> / <b>.zip</b>，
+       以封面墙的形式列出来；点封面开始阅读，没封面就显示默认封面。</p>
     <div class="empty-actions">
-      <button id="btn-empty-open" class="btn btn-primary">打开 cbz…</button>
-      <button id="btn-empty-dir" class="btn">打开文件夹…</button>
+      <button id="btn-empty-open" class="btn btn-primary">打开漫画文件夹…</button>
     </div>
-    <p class="empty-hint">快捷键：← → 翻页 · + − 缩放 · 0 复位 · F 全屏 · O 打开</p>
+    <p class="empty-hint">快捷键：← → 翻页 · + − 缩放 · n 下一话 · b 回书架 · F 全屏</p>
   </div>
 
-  <div id="library" class="library hidden">
-    <div class="library-head">
-      <div class="lib-title">
-        <span class="lib-icon">📚</span>
-        <span id="lib-path" class="lib-path"></span>
+  <div id="shelf" class="shelf hidden">
+    <div class="shelf-head">
+      <div class="shelf-title-wrap">
+        <span class="shelf-icon">📚</span>
+        <span id="shelf-title" class="shelf-title"></span>
+        <span id="shelf-count" class="shelf-count"></span>
       </div>
-      <button id="btn-lib-up" class="btn btn-sm">上一级</button>
     </div>
-    <ul id="lib-list" class="lib-list"></ul>
+    <div id="shelf-grid" class="shelf-grid"></div>
+    <div class="shelf-pager">
+      <button id="btn-page-prev" class="btn btn-sm">‹ 上一页</button>
+      <span id="shelf-page-info" class="shelf-page-info">第 1 / 1 页</span>
+      <button id="btn-page-next" class="btn btn-sm">下一页 ›</button>
+    </div>
   </div>
 
   <div id="canvas" class="canvas hidden">
@@ -127,14 +131,14 @@
   </label>
   <div class="foot-info">
     <span id="page-meta">未打开文件</span>
-    <span class="hint">← → 翻页 · + − 缩放 · n 下一话 · F 全屏</span>
+    <span class="hint">← → 翻页 · + − 缩放 · n 下一话 · b 书架 · F 全屏</span>
   </div>
 </footer>
 
-<div id="picker" class="picker hidden" role="dialog" aria-modal="true" aria-label="选择文件">
+<div id="picker" class="picker hidden" role="dialog" aria-modal="true" aria-label="选择文件夹">
   <div class="picker-box">
     <div class="picker-head">
-      <span id="picker-title">打开 cbz</span>
+      <span id="picker-title">打开漫画文件夹</span>
       <button id="picker-close" class="chapter-x" title="关闭（Esc）">×</button>
     </div>
     <div class="picker-path">
@@ -146,7 +150,7 @@
     <div class="picker-foot">
       <button id="picker-up" class="btn btn-sm">上一级</button>
       <span id="picker-hint" class="picker-hint"></span>
-      <button id="picker-select" class="btn btn-sm btn-primary hidden">打开当前文件夹</button>
+      <button id="picker-select" class="btn btn-sm btn-primary">打开当前文件夹</button>
     </div>
   </div>
 </div>

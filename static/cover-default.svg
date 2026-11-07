@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" width="300" height="400" role="img" aria-label="无封面">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2230"/>
+      <stop offset="1" stop-color="#10141c"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="400" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="299" height="399" fill="none" stroke="#232c3b"/>
+  <g fill="none" stroke="#3a4761" stroke-width="3" stroke-linejoin="round">
+    <path d="M78 128h56a12 12 0 0 1 12 12v112a12 12 0 0 1-12 12H78z" fill="#1c2432"/>
+    <path d="M222 128h-56a12 12 0 0 0-12 12v112a12 12 0 0 0 12 12h56z" fill="#1c2432"/>
+    <path d="M150 140v124"/>
+  </g>
+  <text x="150" y="312" text-anchor="middle" font-family="Microsoft YaHei, Segoe UI, sans-serif"
+        font-size="18" fill="#5f6a80">无封面</text>
+</svg>

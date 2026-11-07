@@ -23,9 +23,15 @@ const state = {
   chapters: [],
   chapterIndex: -1,
   sidebarOpen: true,
+  shelf: null,          // {path, name, items, count, folders}
+  shelfPage: 1,
+  view: "empty",        // empty | shelf | reading
   wheelAt: 0,
   lastScroll: 0,
 };
+
+const SHELF_PER_PAGE = 25;
+const DEFAULT_COVER = "/static/cover-default.svg";
 
 const ZOOM_STEP = 1.25;
 const ZOOM_MIN = 0.1;
@@ -168,7 +174,7 @@ async function openPath(path, preferImages) {
     const r = await post("/api/reader/open", { path, prefer_images: !!preferImages });
     if (!r.ok) throw new Error(r.error || "打开失败");
     if (r.kind === "library") {
-      showLibrary(r);
+      await loadShelf(r.path);
       return;
     }
     await openDoc(r);
@@ -187,7 +193,6 @@ async function openDoc(r) {
   state.name = r.name;
   state.pages = r.pages;
   state.index = 0;
-  state.libraryPath = null;
   state.scrollBuiltFor = null;
   state.chapters = r.chapters || [];
   state.chapterIndex = typeof r.chapter_index === "number" ? r.chapter_index : -1;
@@ -212,10 +217,11 @@ async function openDoc(r) {
   history.replaceState(null, "", "/reader?" + nextUrl.toString());
 
   $("#empty").classList.add("hidden");
-  $("#library").classList.add("hidden");
+  $("#shelf").classList.add("hidden");
   renderView();
   renderChapters();
   updateDocBadge();
+  setView("reading");
 
   const saved = parseInt(localStorage.getItem(posKey(r.path)) || "0", 10) || 0;
   const start = Number.isFinite(asked) && asked > 0
@@ -224,68 +230,175 @@ async function openDoc(r) {
   await goTo(start, true);
 }
 
-/* ---------------- 书架 ---------------- */
-function showLibrary(r) {
+/* ---------------- 书架（封面墙） ---------------- */
+function shelfPageFor(path) {
+  const saved = parseInt(localStorage.getItem("comicpack.shelf.page." + path) || "1", 10);
+  return Number.isFinite(saved) && saved > 0 ? saved : 1;
+}
+
+function shelfPageCount() {
+  const n = state.shelf ? state.shelf.items.length : 0;
+  return Math.max(1, Math.ceil(n / SHELF_PER_PAGE));
+}
+
+async function loadShelf(path) {
+  closePicker();
+  setBusy(true, true);
+  try {
+    const r = await post("/api/library/scan", { path });
+    if (!r.ok) throw new Error(r.error || "扫描失败");
+    if (r.kind === "book") {                 // 选中的本身就是一本
+      await openPath(r.path);
+      return;
+    }
+    state.shelf = {
+      path: r.path,
+      name: r.name,
+      items: r.items || [],
+      count: r.count || 0,
+      folders: r.folders || 0,
+    };
+    state.shelfPage = shelfPageFor(r.path);
+    openShelfView();
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    setBusy(false, true);
+  }
+}
+
+function openShelfView() {
   if (state.sid) {
     post("/api/reader/close/" + state.sid, {}).catch(() => {});
     state.sid = null;
   }
   state.pages = [];
   state.index = 0;
-  state.scrollBuiltFor = null;
-  state.libraryPath = r.path;
   state.chapters = [];
   state.chapterIndex = -1;
-  $("#chapters").classList.add("hidden");
+  state.scrollBuiltFor = null;
 
-  $("#empty").classList.add("hidden");
+  $("#chapters").classList.add("hidden");
   $("#canvas").classList.add("hidden");
   $("#scroll").classList.add("hidden");
-  $("#library").classList.remove("hidden");
+  $("#empty").classList.add("hidden");
+  $("#shelf").classList.remove("hidden");
+  $("#cover-solo-wrap").classList.add("hidden");
 
-  $("#doc-name").textContent = "书架 · " + r.name;
-  $("#doc-name").title = r.path;
+  renderShelf();
+  setView("shelf");
+  history.replaceState(null, "", "/reader?path=" + encodeURIComponent(state.shelf.path));
+}
+
+function setView(view) {
+  state.view = view;
+  $("#btn-shelf").classList.toggle("hidden", view !== "reading" || !state.shelf);
+}
+
+function renderShelf() {
+  const shelf = state.shelf;
+  if (!shelf) return;
+
+  const pages = shelfPageCount();
+  state.shelfPage = Math.min(Math.max(1, state.shelfPage), pages);
+  const start = (state.shelfPage - 1) * SHELF_PER_PAGE;
+  const slice = shelf.items.slice(start, start + SHELF_PER_PAGE);
+
+  $("#shelf-title").textContent = shelf.name || shelf.path;
+  $("#shelf-title").title = shelf.path;
+  $("#shelf-count").textContent = shelf.count ? `${shelf.count} 本` : "";
+
+  $("#doc-name").textContent = "书架 · " + (shelf.name || "");
+  $("#doc-name").title = shelf.path;
   $("#doc-count").classList.add("hidden");
+  $("#page-meta").textContent = shelf.count
+    ? `${shelf.count} 本 · 共 ${pages} 页`
+    : "这个文件夹（含子文件夹）里没有 cbz / zip";
   $("#page-total").textContent = "0";
   $("#page-input").value = "";
-  let libMeta = `${r.archive_count} 个漫画包 · ${r.folder_count} 个文件夹`;
-  if (r.image_count) libMeta += ` · ${r.image_count} 张图片`;
-  $("#page-meta").textContent = libMeta;
-  history.replaceState(null, "", "/reader?path=" + encodeURIComponent(r.path));
 
-  $("#lib-path").textContent = r.path;
-  $("#btn-lib-up").disabled = !parentOf(r.path) || parentOf(r.path) === r.path;
+  const grid = $("#shelf-grid");
+  grid.innerHTML = "";
+  if (!shelf.items.length) {
+    const empty = document.createElement("div");
+    empty.className = "shelf-empty";
+    empty.textContent = "这里没有 cbz / zip。可以换个文件夹，或先把图片打包成 cbz。";
+    grid.appendChild(empty);
+  } else {
+    const frag = document.createDocumentFragment();
+    slice.forEach((item) => frag.appendChild(bookCard(item)));
+    grid.appendChild(frag);
+  }
 
-  const list = $("#lib-list");
-  list.innerHTML = "";
-  if (!r.items.length) {
-    const li = document.createElement("li");
-    li.className = "lib-empty";
-    li.textContent = "这个文件夹里没有漫画包";
-    list.appendChild(li);
+  $("#shelf-page-info").textContent = `第 ${state.shelfPage} / ${pages} 页`;
+  $("#btn-page-prev").disabled = state.shelfPage <= 1;
+  $("#btn-page-next").disabled = state.shelfPage >= pages;
+
+  // 记住这个文件夹看到第几页，下次回来/刷新都停在原处
+  localStorage.setItem("comicpack.shelf.page." + shelf.path, String(state.shelfPage));
+  $("#stage").scrollTop = 0;
+}
+
+function bookCard(item) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "shelf-card";
+  card.title = item.rel || item.name;
+
+  const coverBox = document.createElement("div");
+  coverBox.className = "shelf-cover";
+
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.alt = item.name;
+  img.onerror = () => { img.onerror = null; img.src = DEFAULT_COVER; };
+  img.src = item.cover
+    ? "/api/library/cover?path=" + encodeURIComponent(item.path)
+    : DEFAULT_COVER;
+  coverBox.appendChild(img);
+
+  const name = document.createElement("div");
+  name.className = "shelf-name";
+  name.textContent = item.name;
+
+  const meta = document.createElement("div");
+  meta.className = "shelf-meta";
+  meta.textContent = item.dir ? `${item.dir} · ${item.size_text}` : item.size_text;
+
+  card.append(coverBox, name, meta);
+  card.addEventListener("click", () => openBook(item));
+  return card;
+}
+
+async function openBook(item) {
+  closePicker();
+  setBusy(true, true);
+  try {
+    const r = await post("/api/reader/open", { path: item.path });
+    if (!r.ok) throw new Error(r.error || "打开失败");
+    await openDoc(r);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    setBusy(false, true);
+  }
+}
+
+function gotoPage(page) {
+  if (!state.shelf) return;
+  const pages = shelfPageCount();
+  state.shelfPage = Math.min(Math.max(1, page), pages);
+  renderShelf();
+}
+
+function backToShelf() {
+  if (state.shelf) {
+    openShelfView();
     return;
   }
-  r.items.forEach((item) => {
-    const li = document.createElement("li");
-    const kind = document.createElement("span");
-    kind.className = "lib-kind";
-    kind.textContent = item.kind === "archive" ? "📦" : (item.kind === "images" ? "🖼️" : "📁");
-
-    const name = document.createElement("span");
-    name.className = "lib-name";
-    name.textContent = item.name;
-
-    const meta = document.createElement("span");
-    meta.className = "lib-meta";
-    if (item.kind === "archive") meta.textContent = item.bytes_text || humanSize(item.size);
-    else if (item.kind === "images") meta.textContent = `${item.count} 张图片`;
-    else meta.textContent = "文件夹";
-
-    li.append(kind, name, meta);
-    li.title = item.path;
-    li.addEventListener("click", () => openPath(item.path, item.kind === "images"));
-    list.appendChild(li);
-  });
+  const dir = state.path ? parentOf(state.path) : "";
+  if (dir) loadShelf(dir);
 }
 
 /* ---------------- 章节目录 ---------------- */
@@ -368,8 +481,8 @@ function prevChapter() {
 /* ---------------- 视图切换 ---------------- */
 function renderView() {
   const has = state.pages.length > 0;
-  $("#library").classList.add("hidden");
   $("#empty").classList.toggle("hidden", has);
+  if (has) $("#shelf").classList.add("hidden");
 
   const scrollMode = state.mode === "scroll" && has;
   $("#scroll").classList.toggle("hidden", !scrollMode);
@@ -699,10 +812,11 @@ function setMode(mode, force) {
 }
 
 /* ---------------- 绑定 ---------------- */
-$("#btn-open").addEventListener("click", () => openDialog("file"));
-$("#btn-empty-open").addEventListener("click", () => openDialog("file"));
+$("#btn-empty-open").addEventListener("click", () => openDialog("folder"));
 $("#btn-open-dir").addEventListener("click", () => openDialog("folder"));
-$("#btn-empty-dir").addEventListener("click", () => openDialog("folder"));
+$("#btn-shelf").addEventListener("click", backToShelf);
+$("#btn-page-prev").addEventListener("click", () => gotoPage(state.shelfPage - 1));
+$("#btn-page-next").addEventListener("click", () => gotoPage(state.shelfPage + 1));
 
 $("#picker-close").addEventListener("click", closePicker);
 $("#picker-up").addEventListener("click", () => { if (picker.parent) loadPicker(picker.parent); });
@@ -712,15 +826,12 @@ $("#picker-input").addEventListener("keydown", (e) => {
 });
 $("#picker-select").addEventListener("click", () => {
   if (!picker.path) return;
+  const target = picker.path;
   closePicker();
-  openPath(picker.path);
+  loadShelf(target);
 });
 $("#picker").addEventListener("click", (e) => {
   if (e.target === $("#picker")) closePicker();
-});
-$("#btn-lib-up").addEventListener("click", () => {
-  const up = parentOf(state.libraryPath);
-  if (up) openPath(up);
 });
 
 $("#btn-prev").addEventListener("click", prev);
@@ -800,6 +911,16 @@ window.addEventListener("keydown", (e) => {
   if (e.target && e.target.matches("input, textarea, select")) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;
+
+  if (state.view === "shelf") {             // 书架：左右键翻页
+    if (k === "ArrowRight" || k === "PageDown" || k === " ") {
+      e.preventDefault(); gotoPage(state.shelfPage + 1); return;
+    }
+    if (k === "ArrowLeft" || k === "PageUp") {
+      e.preventDefault(); gotoPage(state.shelfPage - 1); return;
+    }
+  }
+
   if (k === "ArrowRight" || k === "ArrowDown" || k === "PageDown" || k === " ") {
     e.preventDefault(); next();
   } else if (k === "ArrowLeft" || k === "ArrowUp" || k === "PageUp") {
@@ -817,7 +938,9 @@ window.addEventListener("keydown", (e) => {
   } else if (k === "f" || k === "F") {
     e.preventDefault(); toggleFull();
   } else if (k === "o" || k === "O") {
-    e.preventDefault(); openDialog("file");
+    e.preventDefault(); openDialog("folder");
+  } else if (k === "b" || k === "B") {
+    e.preventDefault(); backToShelf();
   } else if (k === "n" || k === "N") {
     e.preventDefault(); nextChapter();
   }
@@ -861,10 +984,39 @@ $("#btn-quit").addEventListener("click", async () => {
   updateChrome();
 
   const fromUrl = params.get("path");
-  const last = localStorage.getItem("comicpack.read.last");
-  const start = fromUrl || last;
-  if (start) {
+  if (fromUrl) {
     $("#doc-name").textContent = "正在打开…";
-    openPath(start);
+    bootPath(fromUrl);
+  } else {
+    state.view = "empty";
+    $("#btn-shelf").classList.add("hidden");
   }
 })();
+
+/* 打开时判断给的是文件夹还是单个包：文件夹直接进封面墙 */
+async function bootPath(path) {
+  try {
+    const r = await post("/api/library/scan", { path });
+    if (!r.ok) {
+      toast(r.error || "打开失败");
+      state.view = "empty";
+      $("#empty").classList.remove("hidden");
+      return;
+    }
+    if (r.kind === "book") {
+      await openPath(path);
+      return;
+    }
+    state.shelf = {
+      path: r.path,
+      name: r.name,
+      items: r.items || [],
+      count: r.count || 0,
+      folders: r.folders || 0,
+    };
+    state.shelfPage = shelfPageFor(r.path);
+    openShelfView();
+  } catch (e) {
+    toast(e.message);
+  }
+}

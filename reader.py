@@ -36,6 +36,11 @@ CONTENT_TYPES = {
 # 同时保留的会话数（每个会话占一个 zip 句柄）
 MAX_SESSIONS = 8
 
+# 书架扫描：常见的“这本书的封面”文件名
+_COVER_NAMES = ("cover", "folder", "poster", "front", "封面", "封面图")
+_COVER_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
+_SKIP_DIRS = {"$recycle.bin", "system volume information", "recycler", "lost+found"}
+
 _sessions: dict = {}
 _lock = threading.Lock()
 
@@ -46,6 +51,135 @@ class ReaderError(Exception):
 
 def _ctype(name: str) -> str:
     return CONTENT_TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
+
+
+def _sibling_cover(archive_path: str) -> str:
+    """同目录下和漫画包配套的封面图（同名优先，其次 cover/poster/封面）。"""
+    base = os.path.splitext(archive_path)[0]
+    for ext in _COVER_EXTS:
+        cand = base + ext
+        if os.path.isfile(cand):
+            return cand
+    folder = os.path.dirname(archive_path)
+    for name in _COVER_NAMES:
+        for ext in _COVER_EXTS:
+            cand = os.path.join(folder, name + ext)
+            if os.path.isfile(cand):
+                return cand
+    return ""
+
+
+def _zip_first_image_info(archive_path: str):
+    """包内的第一张图（按自然排序），没有就 None。"""
+    try:
+        with zipfile.ZipFile(archive_path) as zf:
+            infos = [i for i in zf.infolist()
+                     if not i.is_dir() and packer.is_image_name(i.filename)]
+            if not infos:
+                return None
+            infos.sort(key=lambda i: packer.natural_key(i.filename))
+            return infos[0]
+    except (OSError, zipfile.BadZipFile):
+        return None
+
+
+def cover_bytes(archive_path: str):
+    """取封面图片字节：(bytes, content_type)；没有封面返回 None。"""
+    path = packer.normalize_path(archive_path)
+    if os.path.splitext(path)[1].lower() not in ARCHIVE_EXTS or not os.path.isfile(path):
+        return None
+
+    sib = _sibling_cover(path)
+    if sib:
+        try:
+            with open(sib, "rb") as fh:
+                return fh.read(), _ctype(sib)
+        except OSError:
+            return None
+
+    info = _zip_first_image_info(path)
+    if not info:
+        return None
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return zf.read(info.filename), _ctype(info.filename)
+    except (OSError, zipfile.BadZipFile, RuntimeError, KeyError):
+        return None
+
+
+def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
+    """递归扫描文件夹里的 cbz/zip，返回书架条目（带封面标记）。
+
+    用户选中的文件夹可能只有一堆包，也可能有很多层子文件夹；
+    这里统一递归收集，客户端只负责按封面分页展示。
+    """
+    path = packer.normalize_path(root)
+    if not path:
+        return {"ok": False, "error": "请选择一个文件夹"}
+
+    if os.path.isfile(path):
+        if os.path.splitext(path)[1].lower() in ARCHIVE_EXTS:
+            return {"ok": True, "kind": "book", "path": path,
+                    "name": os.path.basename(path)}
+        return {"ok": False, "error": "这看起来不是 cbz / zip 文件"}
+    if not os.path.isdir(path):
+        return {"ok": False, "error": f"文件夹不存在：{path}"}
+
+    base = os.path.abspath(path)
+    items, folders = [], 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(base):
+            rel_dir = os.path.relpath(dirpath, base)
+            depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
+            if depth > max_depth:
+                dirnames[:] = []
+                continue
+
+            dirnames[:] = sorted(
+                [d for d in dirnames
+                 if not d.startswith(".") and d.lower() not in _SKIP_DIRS],
+                key=packer.natural_key)
+            folders += 1
+
+            for fname in sorted(filenames, key=packer.natural_key):
+                if os.path.splitext(fname)[1].lower() not in ARCHIVE_EXTS:
+                    continue
+                full = os.path.join(dirpath, fname)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                rel = os.path.relpath(full, base)
+                cover = "file" if _sibling_cover(full) else (
+                    "zip" if _zip_first_image_info(full) else "")
+                items.append({
+                    "name": fname,
+                    "path": full,
+                    "rel": rel,
+                    "dir": os.path.dirname(rel) if os.path.dirname(rel) != "." else "",
+                    "size": st.st_size,
+                    "size_text": packer.human_size(st.st_size),
+                    "cover": cover,
+                })
+                if len(items) >= max_books:
+                    break
+            if len(items) >= max_books:
+                break
+    except OSError as exc:
+        return {"ok": False, "error": f"无法读取文件夹：{exc}"}
+
+    items.sort(key=lambda it: (it["rel"].count(os.sep),
+                               packer.natural_key(it["dir"]),
+                               packer.natural_key(it["name"])))
+    return {
+        "ok": True,
+        "kind": "shelf",
+        "path": path,
+        "name": os.path.basename(path.rstrip("\\/")) or path,
+        "items": items,
+        "count": len(items),
+        "folders": folders,
+    }
 
 
 ARCHIVE_EXTS = {".cbz", ".zip"}

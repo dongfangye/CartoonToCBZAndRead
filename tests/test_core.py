@@ -17,6 +17,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -145,6 +146,66 @@ class PackerTest(unittest.TestCase):
             res = packer.pack(src, ["cbz"])
             self.assertEqual(res["deleted"], 0)
             self.assertTrue(os.path.isfile(os.path.join(src, "1.jpg")))
+
+
+class LibraryTest(unittest.TestCase):
+    """封面墙扫描：递归找包、封面来源、封面字节。"""
+
+    def _make_cbz(self, folder, name, payload=JPG):
+        src = os.path.join(folder, "_tmp_" + name)
+        os.makedirs(src, exist_ok=True)
+        for page in ("1.jpg", "2.jpg"):
+            with open(os.path.join(src, page), "wb") as fh:
+                fh.write(payload)
+        out = packer.pack(src, ["cbz"])["produced"][0]["path"]
+        os.replace(out, os.path.join(folder, name))
+        shutil.rmtree(src)
+        return os.path.join(folder, name)
+
+    def test_scan_recursive_with_covers(self):
+        with workdir() as tmp:
+            root_book = self._make_cbz(tmp, "第01话.cbz")
+            vol = os.path.join(tmp, "卷2")
+            os.makedirs(vol)
+            nested_book = self._make_cbz(vol, "第02话.cbz", PNG)
+            with open(os.path.join(vol, "第02话.jpg"), "wb") as fh:
+                fh.write(JPG)
+
+            res = reader.scan_library(tmp)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["kind"], "shelf")
+            self.assertEqual(res["count"], 2)
+
+            by_name = {it["name"]: it for it in res["items"]}
+            self.assertEqual(by_name["第01话.cbz"]["cover"], "zip")   # 包内首图
+            self.assertEqual(by_name["第02话.cbz"]["cover"], "file")  # 同名封面
+            self.assertTrue(by_name["第02话.cbz"]["dir"])             # 子文件夹
+            self.assertEqual(by_name["第01话.cbz"]["dir"], "")
+
+            # 新增测试里的封面文件不是 cbz，不该被当成书
+            self.assertEqual([i["rel"] for i in res["items"]].__len__(), 2)
+            self.assertEqual(reader.scan_library(root_book)["kind"], "book")
+
+    def test_cover_bytes(self):
+        with workdir() as tmp:
+            book = self._make_cbz(tmp, "第01话.cbz")
+            data, ctype = reader.cover_bytes(book)
+            self.assertEqual(data, JPG)
+            self.assertEqual(ctype, "image/jpeg")
+
+            with open(os.path.join(tmp, "封面.png"), "wb") as fh:
+                fh.write(PNG)
+            data, ctype = reader.cover_bytes(book)
+            self.assertEqual(data, PNG)
+            self.assertEqual(ctype, "image/png")
+
+            self.assertIsNone(reader.cover_bytes(os.path.join(tmp, "note.txt")))
+
+    def test_empty_shelf(self):
+        with workdir() as tmp:
+            res = reader.scan_library(tmp)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["count"], 0)
 
 
 class ReaderTest(unittest.TestCase):
@@ -423,6 +484,29 @@ class HttpTest(unittest.TestCase):
         self.assertTrue(res["ok"], res)
         self.assertEqual([e["name"] for e in res["entries"]], ["子目录", "第04话.cbz"])
         self.assertEqual((res["dir_count"], res["file_count"]), (1, 1))
+
+    def test_library_scan_and_cover(self):
+        folder = os.path.join(self.tmp, "书架测试")
+        src = os.path.join(folder, "src")
+        os.makedirs(src)
+        with open(os.path.join(src, "1.jpg"), "wb") as fh:
+            fh.write(JPG)
+        out = packer.pack(src, ["cbz"])["produced"][0]["path"]
+        book = os.path.join(folder, "书.cbz")
+        os.replace(out, book)
+        shutil.rmtree(src)
+
+        res = self.post("/api/library/scan", {"path": folder})
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["kind"], "shelf")
+        self.assertEqual(res["count"], 1)
+        self.assertEqual(res["items"][0]["name"], "书.cbz")
+
+        status, ctype, data = self.get(
+            "/api/library/cover?path=" + urllib.parse.quote(book))
+        self.assertEqual(status, 200)
+        self.assertEqual(ctype, "image/jpeg")
+        self.assertEqual(data, JPG)
 
     def test_rename_page_and_api(self):
         status, _ctype, body = self.get("/rename")
