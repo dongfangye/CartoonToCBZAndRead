@@ -424,6 +424,26 @@ class HttpTest(unittest.TestCase):
         self.assertEqual([e["name"] for e in res["entries"]], ["子目录", "第04话.cbz"])
         self.assertEqual((res["dir_count"], res["file_count"]), (1, 1))
 
+    def test_rename_page_and_api(self):
+        status, _ctype, body = self.get("/rename")
+        self.assertEqual(status, 200)
+        self.assertIn(b"rename.js", body)
+
+        folder = os.path.join(self.tmp, "改名")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "剧名 - 01 [1080p].mkv"), "wb") as fh:
+            fh.write(b"video")
+
+        res = self.post("/api/rename/scan", {"path": folder})
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["items"][0]["new_name"], "剧名 S01E01.mkv")
+        self.assertEqual(res["stats"]["ok"], 1)
+
+        out = self.post("/api/rename/apply", {"path": folder})
+        self.assertTrue(out["ok"], out)
+        self.assertEqual([d["to"] for d in out["renamed"]], ["剧名 S01E01.mkv"])
+        self.assertEqual(os.listdir(folder), ["剧名 S01E01.mkv"])
+
     def test_pages_served(self):
         status, ctype, body = self.get("/reader")
         self.assertEqual(status, 200)

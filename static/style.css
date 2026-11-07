@@ -648,6 +648,78 @@ input[type="text"]::placeholder { color: #5b6478; }
 
 .hidden { display: none !important; }
 
+/* ---------------- 改名表格 ---------------- */
+.rename-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.rename-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #151a23;
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: .4px;
+  font-weight: 500;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.rename-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #171c25;
+  vertical-align: middle;
+}
+
+.rename-table tbody tr:hover { background: rgba(76, 141, 255, .06); }
+.rename-table tbody tr:last-child td { border-bottom: none; }
+
+.rt-old { color: #a3abbd; max-width: 340px; word-break: break-all; }
+.rt-title { color: #dfe5f0; white-space: nowrap; }
+.rt-se { color: #8fb6ff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rt-new {
+  color: #8fb6ff;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  max-width: 360px;
+  word-break: break-all;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 20px;
+  border: 1px solid #2a3242;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.badge.ok { color: #7ee08a; border-color: #1f3a25; background: #0f1a12; }
+.badge.same { color: #9aa4b8; border-color: #2a3242; background: #12161e; }
+.badge.conflict { color: #e3b341; border-color: #3a3120; background: #1a1710; }
+.badge.skip { color: #ff9b95; border-color: #4a2629; background: #1d1214; }
+
+.stat-list { list-style: none; margin: 0 0 6px; padding: 0; }
+
+.stat-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 2px;
+  border-bottom: 1px dashed #1c222d;
+  font-size: 12.5px;
+  color: #9aa4b8;
+}
+
+.stat-list li:last-child { border-bottom: none; }
+.stat-list li b { color: #dfe5f0; font-weight: 600; }
+
+.ok-text { color: #7ee08a; }
+
 /* ---------------- 窄屏 ---------------- */
 @media (max-width: 980px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: minmax(240px, 1fr) auto; }

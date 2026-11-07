@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComicPack · 视频改名</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🏷️</span>
+    <div class="brand-text">
+      <h1>ComicPack <span class="tag">改名</span></h1>
+      <p>剧集视频 → Emby 命名</p>
+    </div>
+  </div>
+  <nav class="nav">
+    <a class="ghost" href="/">打包</a>
+    <a class="ghost" href="/reader">阅读</a>
+    <a class="ghost" href="/rename" aria-current="page">改名</a>
+  </nav>
+  <button id="btn-quit" class="ghost" title="停止本地服务">关闭服务</button>
+</header>
+
+<main class="layout">
+
+  <!-- ================= 左：视频清单 ================= -->
+  <section class="panel panel-left">
+    <div class="panel-head">
+      <h2>视频文件夹</h2>
+      <span class="hint">只处理这一层视频，字幕 / nfo 不动</span>
+    </div>
+
+    <div class="path-row">
+      <input id="path" type="text" spellcheck="false"
+             placeholder="点「浏览…」选择，或直接粘贴路径（支持带引号）">
+      <button id="btn-browse" class="btn btn-primary">浏览…</button>
+      <button id="btn-scan" class="btn">扫描</button>
+    </div>
+
+    <div id="summary" class="summary">尚未选择文件夹</div>
+
+    <div class="list-wrap">
+      <table id="table" class="rename-table hidden">
+        <thead>
+          <tr>
+            <th class="rt-c-old">原文件名</th>
+            <th class="rt-c-title">剧名</th>
+            <th class="rt-c-se">季 / 集</th>
+            <th class="rt-c-new">新文件名</th>
+            <th class="rt-c-status">状态</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="list-empty" class="empty">
+        <div class="empty-icon">🎬</div>
+        <p>选择一个视频文件夹后，这里会列出识别结果和新文件名（预览，不会真的改）</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 右：规则与执行 ================= -->
+  <aside class="panel panel-right">
+    <div class="panel-head">
+      <h2>命名规则</h2>
+    </div>
+
+    <div class="group">
+      <div class="group-title">Emby 剧集格式 <span class="sub">固定模板</span></div>
+      <div class="output-preview">
+        剧名 S01E01.mkv<br>
+        剧名 S01E01-E02.mkv
+      </div>
+      <p class="tip">
+        季集来自文件名：<code>S01E05</code>、<code>第5集</code>、<code>EP05</code>、
+        <code>[05]</code>、<code>剧名 - 05</code> 都能认；认不出季就按第 1 季。
+        剧名取集数前面的文字，没有就用文件夹名。
+      </p>
+    </div>
+
+    <div class="group">
+      <div class="group-title">本次识别</div>
+      <ul class="stat-list" id="stats">
+        <li><span>可改名</span><b id="st-ok">0</b></li>
+        <li><span>已是规范名</span><b id="st-same">0</b></li>
+        <li><span>冲突 / 无法识别</span><b id="st-bad">0</b></li>
+      </ul>
+      <p class="tip">只改名，不移动文件；目标名已存在就跳过，绝不覆盖。</p>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div id="result-box" class="result-box hidden"></div>
+
+    <button id="btn-apply" class="btn btn-start" disabled>开始改名</button>
+  </aside>
+
+</main>
+
+<div id="toast" class="toast"></div>
+<script src="/static/rename.js"></script>
+</body>
+</html>
