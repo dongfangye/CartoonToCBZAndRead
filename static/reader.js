@@ -352,8 +352,9 @@ function bookCard(item) {
   img.decoding = "async";
   img.alt = item.name;
   img.onerror = () => { img.onerror = null; img.src = DEFAULT_COVER; };
+  const coverPath = item.cover_path || item.path;
   img.src = item.cover
-    ? "/api/library/cover?path=" + encodeURIComponent(item.path)
+    ? "/api/library/cover?path=" + encodeURIComponent(coverPath)
     : DEFAULT_COVER;
   coverBox.appendChild(img);
 

@@ -265,6 +265,57 @@ class LibraryTest(unittest.TestCase):
                              ["第01话.cbz", "第02话.cbz", "第10话.cbz"])
             self.assertTrue(group["path"].endswith("第01话.cbz"))   # 点开先读第一话
 
+    def test_series_folder_with_cover_zip(self):
+        """封面单独打成一个 zip 放在系列文件夹旁边：只出一张卡，点开读正片。"""
+        with workdir() as tmp:
+            series = os.path.join(tmp, "[Series] Title")
+            os.makedirs(series)
+            for name in ("第1话.zip", "第2话.zip"):
+                with zipfile.ZipFile(os.path.join(series, name), "w") as zf:
+                    for i in range(1, 4):
+                        zf.writestr(f"{i:03d}.jpg", PNG)
+
+            cover_zip = os.path.join(tmp, "[Series] Title.zip")
+            with zipfile.ZipFile(cover_zip, "w") as zf:
+                zf.writestr("cover.jpg", PNG)
+
+            res = reader.scan_library(tmp)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["count"], 1)                  # 封面包不单独成卡
+            group = res["items"][0]
+            self.assertEqual(group["name"], "[Series] Title")
+            self.assertEqual(group["count"], 2)
+            self.assertEqual(group["cover"], "zip")
+            self.assertEqual(os.path.normcase(group["cover_path"]),
+                             os.path.normcase(cover_zip))
+            self.assertTrue(group["path"].endswith("第1话.zip"))
+
+            # 点开应该是正片 3 页，而不是封面 1 页
+            info = reader.open_path(group["path"])
+            self.assertTrue(info["ok"], info)
+            self.assertEqual(info["page_count"], 3)
+            reader.close(info["id"])
+
+            cover = reader.cover_bytes(group["cover_path"])
+            self.assertIsNotNone(cover)
+
+    def test_cover_zip_with_many_pages_stays_a_book(self):
+        """同名 zip 里是一整本书时，不能当封面吃掉。"""
+        with workdir() as tmp:
+            series = os.path.join(tmp, "Series")
+            os.makedirs(series)
+            with zipfile.ZipFile(os.path.join(series, "第1话.zip"), "w") as zf:
+                zf.writestr("001.jpg", PNG)
+            with zipfile.ZipFile(os.path.join(tmp, "Series.zip"), "w") as zf:
+                for i in range(5):
+                    zf.writestr(f"{i:03d}.jpg", PNG)
+
+            res = reader.scan_library(tmp)
+            self.assertEqual(res["count"], 2)
+            names = {it["name"] for it in res["items"]}
+            self.assertIn("Series.zip", names)
+            self.assertIn("第1话.zip", names)
+
     def test_empty_shelf(self):
         with workdir() as tmp:
             res = reader.scan_library(tmp)

@@ -84,9 +84,22 @@ def _zip_first_image_info(archive_path: str):
 
 
 def cover_bytes(archive_path: str):
-    """取封面图片字节：(bytes, content_type)；没有封面返回 None。"""
+    """取封面图片字节：(bytes, content_type)；没有封面返回 None。
+
+    参数既可以是漫画包（取配套封面或包内首图），也可以是直接的封面图片。
+    """
     path = packer.normalize_path(archive_path)
-    if os.path.splitext(path)[1].lower() not in ARCHIVE_EXTS or not os.path.isfile(path):
+    if not os.path.isfile(path):
+        return None
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext in CONTENT_TYPES:                          # 已经是图片文件
+        try:
+            with open(path, "rb") as fh:
+                return fh.read(), _ctype(path)
+        except OSError:
+            return None
+    if ext not in ARCHIVE_EXTS:
         return None
 
     sib = _sibling_cover(path)
@@ -105,6 +118,41 @@ def cover_bytes(archive_path: str):
             return zf.read(info.filename), _ctype(info.filename)
     except (OSError, zipfile.BadZipFile, RuntimeError, KeyError):
         return None
+
+
+def _zip_image_count(archive_path: str) -> int:
+    try:
+        with zipfile.ZipFile(archive_path) as zf:
+            return sum(1 for i in zf.infolist()
+                       if not i.is_dir() and packer.is_image_name(i.filename))
+    except (OSError, zipfile.BadZipFile):
+        return 0
+
+
+def _group_cover(dirpath: str, books: list, cover_archive: str) -> tuple:
+    """给一组章节挑封面：同名封面包 > 目录里 cover/poster/封面 > 父目录同名图 > 第一话首图。"""
+    if cover_archive:
+        return "zip", cover_archive
+
+    for name in _COVER_NAMES:
+        for ext in _COVER_EXTS:
+            cand = os.path.join(dirpath, name + ext)
+            if os.path.isfile(cand):
+                return "file", cand
+
+    parent = os.path.dirname(dirpath)
+    dname = os.path.basename(dirpath)
+    for ext in _COVER_EXTS:
+        cand = os.path.join(parent, dname + ext)
+        if os.path.isfile(cand):
+            return "file", cand
+
+    first = books[0]
+    if first["cover"] == "file" and first["cover_path"]:
+        return "file", first["cover_path"]
+    if first["cover"] == "zip":
+        return "zip", first["path"]
+    return "", ""
 
 
 def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
@@ -126,7 +174,7 @@ def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
         return {"ok": False, "error": f"文件夹不存在：{path}"}
 
     base = os.path.abspath(path)
-    items, folders = [], 0
+    books, folders = [], 0
     try:
         for dirpath, dirnames, filenames in os.walk(base):
             rel_dir = os.path.relpath(dirpath, base)
@@ -149,7 +197,6 @@ def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
                     st = os.stat(full)
                 except OSError:
                     continue
-                rel = os.path.relpath(full, base)
                 cover_path = _sibling_cover(full)
                 if cover_path:
                     cover = "file"
@@ -157,53 +204,92 @@ def scan_library(root: str, max_depth: int = 8, max_books: int = 5000) -> dict:
                     cover = "zip"
                 else:
                     cover = ""
-                items.append({
+                books.append({
                     "name": fname,
                     "path": full,
-                    "rel": rel,
-                    "dir": os.path.dirname(rel) if os.path.dirname(rel) != "." else "",
-                    "folder": os.path.basename(dirpath),
+                    "dirpath": dirpath,
+                    "rel": os.path.relpath(full, base),
                     "size": st.st_size,
                     "size_text": packer.human_size(st.st_size),
                     "cover": cover,
                     "cover_path": cover_path,
                 })
-                if len(items) >= max_books:
+                if len(books) >= max_books:
                     break
-            if len(items) >= max_books:
+            if len(books) >= max_books:
                 break
     except OSError as exc:
         return {"ok": False, "error": f"无法读取文件夹：{exc}"}
 
-    items.sort(key=lambda it: (it["rel"].count(os.sep),
-                               packer.natural_key(it["dir"]),
-                               packer.natural_key(it["name"])))
+    # “封面包”：与某个章节文件夹同名的 zip（例如 [Series].zip 对应 [Series]/第1话.zip）
+    # 它只是封面，不该单独算一本书。
+    cover_archives = {}
+    for dirpath in {b["dirpath"] for b in books}:
+        if os.path.normcase(dirpath) == os.path.normcase(base):
+            continue
+        parent = os.path.dirname(dirpath)
+        dname = os.path.basename(dirpath)
+        for ext in (".zip", ".cbz"):
+            cand = os.path.join(parent, dname + ext)
+            # 封面包通常只有 1~2 张图；图多的是真书，不能当封面吃掉
+            if os.path.isfile(cand) and _zip_image_count(cand) <= 2:
+                cover_archives[os.path.normcase(os.path.abspath(cand))] = cand
 
-    # 一个封面对应多本 cbz（同一部漫画的不同单元集）→ 合并成一张封面卡
+    books = [b for b in books
+             if os.path.normcase(os.path.abspath(b["path"])) not in cover_archives]
+
     groups = {}
-    for book in items:
-        if book["cover"] == "file":
-            key = ("cover", os.path.normcase(book["cover_path"]))
-        else:
+    for book in books:
+        # 根部目录里的包各自算一本；子文件夹里的包按“一部漫画的多话”合并
+        if os.path.normcase(book["dirpath"]) == os.path.normcase(base):
             key = ("book", os.path.normcase(book["path"]))
+        else:
+            key = ("dir", os.path.normcase(book["dirpath"]))
         groups.setdefault(key, []).append(book)
 
     shelf = []
-    for books in groups.values():
-        books.sort(key=lambda b: packer.natural_key(b["name"]))
-        first = books[0]
-        multi = len(books) > 1
-        total = sum(b["size"] for b in books)
+    for group_books in groups.values():
+        dirpath = group_books[0]["dirpath"]
+        group_books.sort(key=lambda b: packer.natural_key(b["name"]))
+        first = group_books[0]
+
+        own_cover_archive = ""
+        if os.path.normcase(dirpath) != os.path.normcase(base):
+            parent = os.path.dirname(dirpath)
+            dname = os.path.basename(dirpath)
+            for ext in (".zip", ".cbz"):
+                cand = os.path.join(parent, dname + ext)
+                hit = cover_archives.get(os.path.normcase(os.path.abspath(cand)), "")
+                if hit:
+                    own_cover_archive = hit
+                    break
+
+        series = len(group_books) > 1 or bool(own_cover_archive)
+        rel_dir = os.path.relpath(dirpath, base)
+        display_dir = "" if rel_dir == "." else rel_dir
+
+        if series:
+            name = os.path.basename(dirpath)
+            cover, cover_path = _group_cover(dirpath, group_books, own_cover_archive)
+            rel = display_dir or first["rel"]
+        else:
+            name = first["name"]
+            cover = first["cover"]
+            cover_path = first["cover_path"] or first["path"]
+            rel = first["rel"]
+
+        total = sum(b["size"] for b in group_books)
         shelf.append({
-            "name": first["folder"] if multi else first["name"],
-            "dir": first["dir"],
-            "rel": first["rel"],
+            "name": name,
+            "dir": display_dir,
+            "rel": rel,
             "path": first["path"],                 # 点开先读第一话
-            "cover": first["cover"],
-            "count": len(books),                   # 这个封面对应几话
+            "cover": cover,
+            "cover_path": cover_path,
+            "count": len(group_books),             # 这一部有几话
             "size": total,
             "size_text": packer.human_size(total),
-            "chapters": [{"name": b["name"], "path": b["path"]} for b in books],
+            "chapters": [{"name": b["name"], "path": b["path"]} for b in group_books],
         })
 
     shelf.sort(key=lambda it: (
