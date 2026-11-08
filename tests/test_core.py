@@ -105,6 +105,48 @@ class PackerTest(unittest.TestCase):
                 self.assertTrue(all(i.compress_type == zipfile.ZIP_STORED
                                     for i in zf.infolist()))
 
+    def test_scan_tree_and_pack_many(self):
+        with workdir() as tmp:
+            for rel, pages in (("第01话", 2), ("第02话", 3), ("卷2/第03话", 1)):
+                d = os.path.join(tmp, *rel.split("/"))
+                os.makedirs(d)
+                for i in range(pages):
+                    with open(os.path.join(d, f"{i + 1}.jpg"), "wb") as fh:
+                        fh.write(JPG)
+            os.makedirs(os.path.join(tmp, "空文件夹"))
+
+            tree = packer.scan_tree(tmp)
+            self.assertTrue(tree["ok"], tree)
+            self.assertEqual(tree["total"], 3)          # 空文件夹不算
+            self.assertEqual(tree["images"], 6)
+            self.assertEqual([f["name"] for f in tree["folders"]],
+                             ["第01话", "第02话", "第03话"])
+
+            res = packer.pack_many(tree["folders"], ["cbz"])
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["folders"], 3)
+            self.assertEqual(res["ok_folders"], 3)
+            self.assertEqual(len(res["produced"]), 3)
+            for p in res["produced"]:
+                self.assertTrue(os.path.isfile(p["path"]), p)
+            # 每个包都在对应子文件夹的同级
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "第01话.cbz")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "卷2", "第03话.cbz")))
+
+    def test_pack_many_delete_source(self):
+        with workdir() as tmp:
+            for rel in ("第01话", "第02话"):
+                d = os.path.join(tmp, rel)
+                os.makedirs(d)
+                with open(os.path.join(d, "1.jpg"), "wb") as fh:
+                    fh.write(JPG)
+            tree = packer.scan_tree(tmp)
+            res = packer.pack_many(tree["folders"], ["cbz"], delete_source=True)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["deleted"], 2)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "第01话")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "第01话.cbz")))
+
     def test_pack_delete_source(self):
         with workdir() as tmp:
             src = os.path.join(tmp, "第04话")
@@ -529,6 +571,35 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(ctype, "image/jpeg")
         self.assertEqual(data, JPG)
+
+    def test_recursive_scan_and_pack(self):
+        root = os.path.join(self.tmp, "递归")
+        for name in ("书A", "书B"):
+            d = os.path.join(root, name)
+            os.makedirs(d)
+            for i in range(2):
+                with open(os.path.join(d, f"{i + 1}.jpg"), "wb") as fh:
+                    fh.write(JPG)
+
+        scan = self.post("/api/scan", {"path": root, "recursive": True})
+        self.assertTrue(scan["ok"], scan)
+        self.assertEqual(scan["total"], 2)
+        self.assertEqual(scan["images"], 4)
+
+        job = self.post("/api/pack", {"path": root, "formats": ["cbz"], "recursive": True})
+        snap = {}
+        for _ in range(60):
+            time.sleep(0.1)
+            snap = json.loads(self.get(f"/api/job/{job['job']}")[2])
+            if snap["job"]["status"] != "running":
+                break
+
+        self.assertEqual(snap["job"]["status"], "done", snap)
+        res = snap["job"]["result"]
+        self.assertTrue(res["recursive"])
+        self.assertEqual(res["folders"], 2)
+        self.assertEqual(len(res["produced"]), 2)
+        self.assertTrue(os.path.isfile(os.path.join(root, "书A.cbz")))
 
     def test_rename_page_and_api(self):
         status, _ctype, body = self.get("/rename")

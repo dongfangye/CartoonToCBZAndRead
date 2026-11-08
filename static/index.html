@@ -31,7 +31,7 @@
   <section class="panel panel-left">
     <div class="panel-head">
       <h2>图片文件夹</h2>
-      <span class="hint">只处理这一层，不递归子目录</span>
+      <span class="hint" id="panel-hint">只处理这一层，不递归子目录</span>
     </div>
 
     <div class="path-row">
@@ -80,6 +80,16 @@
         <span class="check-box"></span>
         <span class="check-main">保留原文件名<em>默认重编号为 001.jpg，避免 2 排在 10 后面</em></span>
       </label>
+    </div>
+
+    <div class="group">
+      <div class="group-title">打包范围</div>
+      <label class="check">
+        <input type="checkbox" id="recursive">
+        <span class="check-box"></span>
+        <span class="check-main">递归打包子文件夹<em>选中的文件夹里，每个含图片的子文件夹各自打成一个包</em></span>
+      </label>
+      <p class="tip">关闭时只打包当前这一层的图片；打开后会扫描所有层级的子文件夹。</p>
     </div>
 
     <div class="group">

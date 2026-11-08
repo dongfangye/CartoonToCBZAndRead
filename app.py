@@ -92,11 +92,22 @@ def _public_job(job: dict) -> dict:
     return {k: v for k, v in job.items() if k != "cancel"}
 
 
-def _run_job(job, folder, formats, keep_names, delete_source, on_progress, cancel):
+def _run_job(job, folder, formats, keep_names, delete_source, recursive,
+             on_progress, cancel):
     try:
-        res = packer.pack(folder, formats, keep_names=keep_names,
-                          delete_source=delete_source,
-                          progress=on_progress, cancel_event=cancel)
+        if recursive:
+            tree = packer.scan_tree(folder)
+            if not tree.get("ok"):
+                raise RuntimeError(tree.get("error") or "扫描子文件夹失败")
+            with _jobs_lock:
+                job["total"] = tree.get("images", 0)
+            res = packer.pack_many(tree["folders"], formats, keep_names=keep_names,
+                                   delete_source=delete_source,
+                                   progress=on_progress, cancel_event=cancel)
+        else:
+            res = packer.pack(folder, formats, keep_names=keep_names,
+                              delete_source=delete_source,
+                              progress=on_progress, cancel_event=cancel)
         with _jobs_lock:
             if res.get("cancelled"):
                 job.update(status="cancelled", error="已取消")
@@ -113,7 +124,7 @@ def _run_job(job, folder, formats, keep_names, delete_source, on_progress, cance
 
 
 def start_job(folder: str, formats: list, keep_names: bool,
-              delete_source: bool = False) -> str:
+              delete_source: bool = False, recursive: bool = False) -> str:
     job_id = uuid.uuid4().hex[:12]
     cancel = threading.Event()
     job = {
@@ -136,7 +147,7 @@ def start_job(folder: str, formats: list, keep_names: bool,
 
     threading.Thread(target=_run_job, daemon=True,
                      args=(job, folder, formats, keep_names, delete_source,
-                           on_progress, cancel)).start()
+                           recursive, on_progress, cancel)).start()
     return job_id
 
 
@@ -250,6 +261,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(ask_folder(data.get("initial") or ""))
             if path == "/api/scan":
                 folder = packer.normalize_path(data.get("path") or "")
+                if data.get("recursive"):
+                    return self._json(packer.scan_tree(folder))
                 info = packer.scan(folder)
                 if info.get("ok"):
                     info["bytes_text"] = packer.human_size(info["bytes"])
@@ -262,7 +275,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not formats:
                     return self._json({"ok": False, "error": "请至少选择一种导出格式"})
                 jid = start_job(folder, formats, bool(data.get("keep_names")),
-                                bool(data.get("delete_source")))
+                                bool(data.get("delete_source")),
+                                bool(data.get("recursive")))
                 return self._json({"ok": True, "job": jid})
             if path.startswith("/api/cancel/"):
                 jid = path.rsplit("/", 1)[-1]

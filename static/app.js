@@ -3,11 +3,19 @@
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
-  info: null,          // 扫描结果
+  info: null,          // 扫描结果（单层）
+  tree: null,          // 递归扫描结果（多个子文件夹）
   jobId: null,
   timer: null,
   running: false,
 };
+
+function recursiveOn() { return $("#recursive").checked; }
+
+function packable() {
+  if (recursiveOn()) return !!(state.tree && state.tree.folders.length);
+  return !!(state.info && state.info.count);
+}
 
 /* ---------------- 工具 ---------------- */
 function humanSize(n) {
@@ -53,7 +61,9 @@ async function browse() {
   btn.disabled = true;
   btn.textContent = "选择中…";
   try {
-    const r = await post("/api/browse", { initial: state.info ? state.info.folder : ($("#path").value || "") });
+    const r = await post("/api/browse", {
+      initial: (state.info || state.tree) ? ((state.info || state.tree).folder || (state.info || state.tree).root) : ($("#path").value || ""),
+    });
     if (!r.ok) throw new Error(r.error || "无法打开选择框");
     if (r.path) {
       $("#path").value = r.path;
@@ -71,30 +81,58 @@ async function scan() {
   const path = $("#path").value.trim();
   if (!path) { toast("请先选择或输入文件夹路径"); return; }
   $("#summary").textContent = "正在扫描…";
+  const recursive = recursiveOn();
   try {
-    const info = await post("/api/scan", { path });
+    const info = await post("/api/scan", { path, recursive });
     if (!info.ok) {
       state.info = null;
+      state.tree = null;
       $("#summary").innerHTML = `<span class="bad">${info.error || "扫描失败"}</span>`;
       renderList();
       updateUI();
       return;
     }
-    state.info = info;
-    $("#path").value = info.folder;
-    localStorage.setItem("comicpack.path", info.folder);
+    if (recursive) {
+      state.tree = info;
+      state.info = null;
+      $("#path").value = info.root;
+      localStorage.setItem("comicpack.path", info.root);
+    } else {
+      state.info = info;
+      state.tree = null;
+      $("#path").value = info.folder;
+      localStorage.setItem("comicpack.path", info.folder);
+    }
     renderSummary();
     renderList();
     updateUI();
   } catch (e) {
     state.info = null;
+    state.tree = null;
     $("#summary").innerHTML = `<span class="bad">扫描失败：${e.message}（服务是否已停止？）</span>`;
+    renderList();
     updateUI();
   }
 }
 
 function renderSummary() {
   const s = $("#summary");
+  if (recursiveOn()) {
+    const tree = state.tree;
+    if (!tree) {
+      s.textContent = "尚未选择文件夹";
+      return;
+    }
+    const bits = [
+      `<span><b>${tree.total}</b> 个子文件夹</span>`,
+      `<span>合计 <b>${tree.images}</b> 张图片</span>`,
+      `<span>合计 <b>${tree.bytes_text || humanSize(tree.bytes)}</b></span>`,
+    ];
+    if (!tree.total) bits.push(`<span class="bad">没有找到含图片的子文件夹</span>`);
+    s.innerHTML = bits.join("");
+    return;
+  }
+
   const info = state.info;
   if (!info) {
     s.textContent = "尚未选择文件夹";
@@ -115,6 +153,16 @@ function renderList() {
   const ol = $("#list");
   const empty = $("#list-empty");
   ol.innerHTML = "";
+  $(".list-wrap").classList.toggle("folders", recursiveOn());
+  $("#panel-hint").textContent = recursiveOn()
+    ? "递归：每个含图片的子文件夹各打一个包"
+    : "只处理这一层，不递归子目录";
+
+  if (recursiveOn()) {
+    renderFolderList(ol, empty);
+    return;
+  }
+
   const info = state.info;
 
   if (!info || !info.count) {
@@ -164,9 +212,78 @@ function renderList() {
   ol.appendChild(frag);
 }
 
+/* ---------------- 递归：子文件夹列表 ---------------- */
+function renderFolderList(ol, empty) {
+  const tree = state.tree;
+  if (!tree || !tree.folders.length) {
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+
+  const frag = document.createDocumentFragment();
+  const head = document.createElement("li");
+  head.className = "head";
+  ["#", "子文件夹", "相对路径", "图片 / 体积"].forEach((t, i) => {
+    const sp = document.createElement("span");
+    sp.className = ["col-idx", "col-new", "col-old", "col-size"][i];
+    sp.textContent = t;
+    head.appendChild(sp);
+  });
+  frag.appendChild(head);
+
+  tree.folders.forEach((f, idx) => {
+    const li = document.createElement("li");
+
+    const n = document.createElement("span");
+    n.className = "col-idx";
+    n.textContent = idx + 1;
+
+    const name = document.createElement("span");
+    name.className = "col-new";
+    name.textContent = f.name;
+    name.title = f.folder;
+
+    const rel = document.createElement("span");
+    rel.className = "col-old";
+    rel.textContent = f.rel || "（根目录）";
+    rel.title = f.folder;
+
+    const size = document.createElement("span");
+    size.className = "col-size";
+    size.textContent = `${f.count} 张 · ${f.bytes_text || humanSize(f.bytes)}`;
+
+    li.append(n, name, rel, size);
+    frag.appendChild(li);
+  });
+
+  ol.appendChild(frag);
+}
+
 /* ---------------- 输出预览 ---------------- */
 function updateOutput() {
   const box = $("#output-preview");
+  const fmts = formatsSelected();
+
+  if (recursiveOn()) {
+    const tree = state.tree;
+    if (!tree || !tree.folders.length) {
+      box.classList.add("muted");
+      box.textContent = "选择文件夹后显示";
+      return;
+    }
+    box.classList.remove("muted");
+    if (!fmts.length) {
+      box.textContent = "（未选择格式）";
+      return;
+    }
+    const sample = tree.folders[0];
+    box.innerHTML =
+      `每个子文件夹旁生成：<br>${escapeHtml(sample.name)}.${fmts[0]}` +
+      `<br>（共 ${tree.folders.length} 个包）`;
+    return;
+  }
+
   const info = state.info;
   if (!info || !info.count) {
     box.classList.add("muted");
@@ -175,7 +292,6 @@ function updateOutput() {
   }
   box.classList.remove("muted");
   const { dir, base } = splitPath(info.folder);
-  const fmts = formatsSelected();
   if (!fmts.length) {
     box.textContent = "（未选择格式）";
     return;
@@ -191,25 +307,28 @@ function escapeHtml(s) {
 
 /* ---------------- 按钮状态 ---------------- */
 function updateUI() {
-  const info = state.info;
-  const has = !!(info && info.count);
-  $("#btn-start").disabled = !has || state.running || formatsSelected().length === 0;
+  $("#btn-start").disabled = !packable() || state.running || formatsSelected().length === 0;
   updateOutput();
 }
 
 /* ---------------- 打包 ---------------- */
 async function start() {
   if (state.running) return;
-  const info = state.info;
-  if (!info || !info.count) { toast("这个文件夹里没有可打包的图片"); return; }
+  const recursive = recursiveOn();
+  const folder = recursive ? (state.tree ? state.tree.root : "") : (state.info ? state.info.folder : "");
+  if (!folder || !packable()) {
+    toast(recursive ? "这个文件夹里没有找到含图片的子文件夹" : "这个文件夹里没有可打包的图片");
+    return;
+  }
   const fmts = formatsSelected();
   if (!fmts.length) { toast("请至少选择一种导出格式"); return; }
 
   const del = $("#delete-source").checked;
   if (del) {
+    const images = recursive ? state.tree.images : state.info.count;
+    const where = recursive ? `这 ${state.tree.folders.length} 个子文件夹里的 ${images} 张原图` : `「${folder}」里的 ${images} 张原图`;
     const ok = confirm(
-      `打包成功后会删除「${info.folder}」里的 ${info.count} 张原图。\n` +
-      `文件夹空了会一并删除，此操作不可撤销。\n\n确定继续吗？`
+      `打包成功后会删除${where}。\n文件夹空了会一并删除，此操作不可撤销。\n\n确定继续吗？`
     );
     if (!ok) return;
   }
@@ -222,10 +341,11 @@ async function start() {
 
   try {
     const r = await post("/api/pack", {
-      path: info.folder,
+      path: folder,
       formats: fmts,
       keep_names: $("#keep-names").checked,
       delete_source: $("#delete-source").checked,
+      recursive,
     });
     if (!r.ok) throw new Error(r.error || "启动失败");
     state.jobId = r.job;
@@ -261,7 +381,7 @@ async function poll() {
   }
 
   if (job.status === "running") {
-    const t = job.total || state.info.count || 1;
+    const t = job.total || (state.tree ? state.tree.images : (state.info ? state.info.count : 1)) || 1;
     showProgress(Math.min(1, job.done / t));
     $("#progress-label").textContent = `${job.done} / ${t}  ${job.current || ""}`;
     const secs = Math.max(0, Math.round(Date.now() / 1000 - job.started));
@@ -289,19 +409,23 @@ async function poll() {
 function resetButtons() {
   state.running = false;
   $("#btn-start").textContent = "开始打包";
-  $("#btn-start").disabled = !(state.info && state.info.count) || formatsSelected().length === 0;
+  $("#btn-start").disabled = !packable() || formatsSelected().length === 0;
 }
 
 function renderResult(result) {
   const box = $("#result-box");
   box.classList.remove("hidden", "err");
   box.innerHTML = "";
+
   const head = document.createElement("div");
   head.className = "result-head";
-  head.textContent = "✅ 打包完成";
+  head.textContent = result.recursive
+    ? `✅ 打包完成：${result.ok_folders}/${result.folders} 个子文件夹`
+    : "✅ 打包完成";
   box.appendChild(head);
 
-  result.produced.forEach((p) => {
+  const shown = result.produced.slice(0, 12);
+  shown.forEach((p) => {
     const row = document.createElement("div");
     row.className = "result-item";
 
@@ -328,6 +452,24 @@ function renderResult(result) {
     box.appendChild(row);
   });
 
+  if (result.produced.length > shown.length) {
+    const more = document.createElement("div");
+    more.className = "result-note";
+    more.textContent = `… 另外 ${result.produced.length - shown.length} 个包`;
+    box.appendChild(more);
+  }
+
+  if (result.failed_folders) {
+    const bad = (result.results || []).filter((r) => !r.ok);
+    const note = document.createElement("div");
+    note.className = "result-note";
+    note.textContent = `${result.failed_folders} 个子文件夹失败：` +
+      bad.slice(0, 5).map((r) => r.name).join("，") +
+      (bad.length > 5 ? " …" : "");
+    note.title = bad.map((r) => `${r.name}: ${r.error}`).join("\n");
+    box.appendChild(note);
+  }
+
   if (result.deleted || (result.delete_errors || []).length || result.removed_folder) {
     const note = document.createElement("div");
     note.className = "result-note";
@@ -343,6 +485,7 @@ function renderResult(result) {
 
     // 原图已经没了，扫描结果不再有效
     state.info = null;
+    state.tree = null;
     $("#path").value = "";
     $("#summary").textContent = "原图已删除，可以重新选择文件夹";
     localStorage.removeItem("comicpack.path");
@@ -384,6 +527,12 @@ $("#delete-source").addEventListener("change", () => {
   localStorage.setItem("comicpack.delete", $("#delete-source").checked ? "1" : "0");
 });
 
+$("#recursive").addEventListener("change", () => {
+  localStorage.setItem("comicpack.recursive", $("#recursive").checked ? "1" : "0");
+  if ($("#path").value.trim()) scan();
+  else updateUI();
+});
+
 document.querySelectorAll('input[name="fmt"]').forEach((c) => {
   c.addEventListener("change", () => {
     const sel = formatsSelected();
@@ -419,6 +568,7 @@ $("#btn-quit").addEventListener("click", async () => {
   });
   $("#keep-names").checked = localStorage.getItem("comicpack.keep") === "1";
   $("#delete-source").checked = localStorage.getItem("comicpack.delete") === "1";
+  $("#recursive").checked = localStorage.getItem("comicpack.recursive") === "1";
 
   const savedPath = localStorage.getItem("comicpack.path");
   const urlPath = new URLSearchParams(location.search).get("path");

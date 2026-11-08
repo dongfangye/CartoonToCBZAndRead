@@ -254,6 +254,14 @@ input[type="text"]::placeholder { color: #5b6478; }
 }
 .btn-start:hover:not(:disabled) { background: linear-gradient(180deg, #5e9bff, #4180f2); }
 
+/* 右侧内容变长时，让「开始打包」始终贴在面板底部 */
+.panel-right .btn-start {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  box-shadow: 0 -10px 20px rgba(8, 10, 14, .55), 0 6px 18px rgba(60, 120, 240, .28);
+}
+
 /* ---------------- 概览 ---------------- */
 .summary {
   margin: 12px 0 10px;
@@ -318,6 +326,11 @@ input[type="text"]::placeholder { color: #5b6478; }
   border-bottom: 1px solid var(--line);
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+/* 递归模式：子文件夹列表的列宽 */
+.list-wrap.folders .img-list li {
+  grid-template-columns: 46px minmax(0, 1.1fr) minmax(0, 1.3fr) 132px;
 }
 
 .col-idx { color: #5f6a80; text-align: right; font-variant-numeric: tabular-nums; }

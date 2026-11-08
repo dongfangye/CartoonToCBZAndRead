@@ -322,6 +322,128 @@ def _delete_sources(folder: str, images: list) -> dict:
             "removed_folder": removed_folder}
 
 
+# 递归打包时跳过的系统目录
+_SKIP_DIRS = {"$recycle.bin", "system volume information", "recycler", "lost+found"}
+
+
+def scan_tree(root: str, max_depth: int = 8) -> dict:
+    """递归找出“含图片的文件夹”——每个都会单独打成一个包。"""
+    root = normalize_path(root)
+    if not root:
+        return {"ok": False, "error": "请先选择文件夹"}
+    if not os.path.isdir(root):
+        return {"ok": False, "error": f"文件夹不存在：{root}"}
+
+    base = os.path.abspath(root)
+    folders = []
+    try:
+        for dirpath, dirnames, _files in os.walk(base):
+            rel = os.path.relpath(dirpath, base)
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+            if depth > max_depth:
+                dirnames[:] = []
+                continue
+            dirnames[:] = sorted(
+                [d for d in dirnames
+                 if not d.startswith(".") and d.lower() not in _SKIP_DIRS],
+                key=natural_key)
+
+            info = scan(dirpath)
+            if not info.get("ok") or not info["images"]:
+                continue
+            folders.append({
+                "folder": dirpath,
+                "name": os.path.basename(dirpath.rstrip("\\/")) or dirpath,
+                "rel": "" if rel == "." else rel,
+                "count": info["count"],
+                "bytes": info["bytes"],
+                "bytes_text": human_size(info["bytes"]),
+            })
+    except OSError as exc:
+        return {"ok": False, "error": f"无法读取文件夹：{exc}"}
+
+    folders.sort(key=lambda f: (
+        f["rel"].count(os.sep),
+        natural_key(os.path.dirname(f["rel"])),
+        natural_key(f["name"])))
+    total_bytes = sum(f["bytes"] for f in folders)
+    return {
+        "ok": True,
+        "root": root,
+        "folders": folders,
+        "total": len(folders),
+        "images": sum(f["count"] for f in folders),
+        "bytes": total_bytes,
+        "bytes_text": human_size(total_bytes),
+    }
+
+
+def pack_many(folders: list, formats: list, keep_names: bool = False,
+              delete_source: bool = False, progress=None,
+              cancel_event: threading.Event | None = None) -> dict:
+    """逐个打包 scan_tree() 找到的文件夹，进度按总图片数累计。"""
+    if not folders:
+        return {"ok": False, "error": "没有找到含图片的子文件夹"}
+
+    total_images = sum(int(f.get("count") or 0) for f in folders)
+    total_bytes = sum(int(f.get("bytes") or 0) for f in folders)
+    done_before = 0
+    produced, results = [], []
+    started = time.time()
+
+    for f in folders:
+        if cancel_event is not None and cancel_event.is_set():
+            return {"ok": False, "cancelled": True, "error": "已取消",
+                    "produced": produced, "results": results}
+
+        def on_progress(p, done0=done_before, name=f["name"]):
+            if progress:
+                progress({
+                    "done": done0 + int(p.get("done") or 0),
+                    "total": total_images,
+                    "current": name,
+                    "bytes": int(p.get("bytes") or 0),
+                    "total_bytes": total_bytes,
+                })
+
+        res = pack(f["folder"], formats, keep_names=keep_names,
+                   delete_source=delete_source, progress=on_progress,
+                   cancel_event=cancel_event)
+        results.append({
+            "folder": f["folder"],
+            "name": f["name"],
+            "rel": f.get("rel", ""),
+            "ok": bool(res.get("ok")),
+            "error": res.get("error", ""),
+            "produced": res.get("produced", []),
+            "count": res.get("count", 0),
+            "deleted": res.get("deleted", 0),
+            "delete_errors": res.get("delete_errors", []),
+        })
+
+        if res.get("cancelled"):
+            return {"ok": False, "cancelled": True, "error": "已取消",
+                    "produced": produced, "results": results}
+        if res.get("ok"):
+            produced.extend(res.get("produced", []))
+            done_before += int(f.get("count") or 0)
+
+    ok_count = sum(1 for r in results if r["ok"])
+    return {
+        "ok": True,
+        "recursive": True,
+        "results": results,
+        "produced": produced,
+        "count": total_images,
+        "folders": len(results),
+        "ok_folders": ok_count,
+        "failed_folders": len(results) - ok_count,
+        "bytes": total_bytes,
+        "deleted": sum(int(r.get("deleted") or 0) for r in results),
+        "elapsed": round(time.time() - started, 2),
+    }
+
+
 def _silent_remove(path: str):
     try:
         if path and os.path.isfile(path):
