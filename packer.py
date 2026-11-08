@@ -25,6 +25,9 @@ IMAGE_EXTS = {
     ".avif", ".tif", ".tiff",
 }
 
+# 找封面时按这个顺序试扩展名（结果稳定，不依赖 set 的遍历顺序）
+_COVER_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
+
 # 目录里常见但要忽略的杂物（不提示、不打包）
 _IGNORE_NAMES = {"thumbs.db", "desktop.ini", ".ds_store", "~$index.db"}
 
@@ -66,8 +69,36 @@ def is_image_name(name: str) -> bool:
     return os.path.splitext(name)[1].lower() in IMAGE_EXTS
 
 
-def _is_image_name(name: str) -> bool:      # 兼容旧调用
-    return is_image_name(name)
+_is_image_name = is_image_name          # 兼容旧调用
+
+
+# 常见“封面”文件名（不含扩展名，小写）。打包时会排到最前面，阅读器就会拿它当封面。
+COVER_STEMS = {"cover", "folder", "poster", "front", "封面", "封面图", "封面页"}
+
+
+def is_cover_name(name: str) -> bool:
+    """cover.jpg / 封面.png / folder.webp 这类文件名视为封面。"""
+    stem = os.path.splitext(name)[0].strip().lower()
+    return stem in COVER_STEMS
+
+
+def _find_parent_cover(folder: str) -> str:
+    """上级目录里的封面：优先 <文件夹名>.jpg，其次 cover/poster/封面。"""
+    norm = os.path.normpath(folder)
+    parent = os.path.dirname(norm)
+    if not parent or parent == norm:
+        return ""
+    base = os.path.basename(norm)
+    for ext in _COVER_EXTS:
+        cand = os.path.join(parent, base + ext)
+        if os.path.isfile(cand):
+            return cand
+    for stem in ("cover", "folder", "poster", "front", "封面", "封面图", "封面页"):
+        for ext in _COVER_EXTS:
+            cand = os.path.join(parent, stem + ext)
+            if os.path.isfile(cand):
+                return cand
+    return ""
 
 
 def scan(folder: str) -> dict:
@@ -106,14 +137,36 @@ def scan(folder: str) -> dict:
                     continue
                 images.append({
                     "name": name,
+                    "path": os.path.join(folder, name),
                     "size": st.st_size,
                     "ext": os.path.splitext(name)[1].lower(),
                     "mtime": int(st.st_mtime),
+                    "cover": is_cover_name(name),
                 })
     except OSError as exc:
         return {"ok": False, "error": f"无法读取文件夹：{exc}"}
 
-    images.sort(key=lambda im: natural_key(im["name"]))
+    # 本级没有封面时，借用上级目录的封面（如 系列/cover.jpg + 系列/第1话/ 的图片）
+    if images and not any(im.get("cover") for im in images):
+        parent_cover = _find_parent_cover(folder)
+        if parent_cover:
+            try:
+                st = os.stat(parent_cover)
+            except OSError:
+                st = None
+            if st is not None:
+                images.append({
+                    "name": os.path.basename(parent_cover),
+                    "path": parent_cover,
+                    "size": st.st_size,
+                    "ext": os.path.splitext(parent_cover)[1].lower(),
+                    "mtime": int(st.st_mtime),
+                    "cover": True,
+                    "external": True,          # 上级封面：进包，但删除原图时不动它
+                })
+
+    # 封面排第一：阅读器/播放器一般拿包内第一张图当封面
+    images.sort(key=lambda im: (0 if im.get("cover") else 1, natural_key(im["name"])))
     total = sum(im["size"] for im in images)
     return {
         "ok": True,
@@ -123,6 +176,7 @@ def scan(folder: str) -> dict:
         "bytes": total,
         "ignored": ignored,
         "subdirs": skipped_dirs,
+        "covers": sum(1 for im in images if im.get("cover")),
         "images": images,
     }
 
@@ -236,7 +290,7 @@ def pack(folder: str, formats: list, keep_names: bool = False,
             for i, (im, arc) in enumerate(zip(images, arcnames), 1):
                 if cancel_event is not None and cancel_event.is_set():
                     raise Cancelled()
-                src = os.path.join(folder, im["name"])
+                src = im.get("path") or os.path.join(folder, im["name"])
                 beat(i - 1, im["name"])
                 try:
                     zf.write(src, arc)
@@ -301,7 +355,9 @@ def _delete_sources(folder: str, images: list) -> dict:
     deleted = 0
     errors = []
     for im in images:
-        path = os.path.join(folder, im["name"])
+        if im.get("external"):
+            continue                     # 借用的上级封面不属于这个文件夹，别删
+        path = im.get("path") or os.path.join(folder, im["name"])
         try:
             os.remove(path)
             deleted += 1
@@ -350,6 +406,9 @@ def scan_tree(root: str, max_depth: int = 8) -> dict:
 
             info = scan(dirpath)
             if not info.get("ok") or not info["images"]:
+                continue
+            # 只放了一张封面的文件夹不算漫画，别给它打个只有封面的包
+            if not any(not im.get("cover") for im in info["images"]):
                 continue
             folders.append({
                 "folder": dirpath,

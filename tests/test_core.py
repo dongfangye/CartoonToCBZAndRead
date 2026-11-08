@@ -147,6 +147,96 @@ class PackerTest(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(tmp, "第01话")))
             self.assertTrue(os.path.isfile(os.path.join(tmp, "第01话.cbz")))
 
+    def test_parent_cover_is_packed(self):
+        """图片在 第1话/，封面在上一级 系列/cover.jpg —— 封面要进包，且删原图时不能删它。"""
+        with workdir() as tmp:
+            series = os.path.join(tmp, "Series")
+            chapter = os.path.join(series, "第1话")
+            os.makedirs(chapter)
+            for name in ("1.jpg", "2.jpg"):
+                with open(os.path.join(chapter, name), "wb") as fh:
+                    fh.write(JPG)
+            with open(os.path.join(series, "cover.jpg"), "wb") as fh:
+                fh.write(PNG)
+
+            info = packer.scan(chapter)
+            self.assertEqual(info["covers"], 1)
+            self.assertEqual(info["images"][0]["name"], "cover.jpg")
+            self.assertTrue(info["images"][0]["external"])
+
+            res = packer.pack(chapter, ["cbz"], delete_source=True)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["deleted"], 2)            # 只删章节里的两张
+            self.assertTrue(os.path.isfile(os.path.join(series, "cover.jpg")))
+
+            with zipfile.ZipFile(res["produced"][0]["path"]) as zf:
+                names = [i.filename for i in zf.infolist()]
+                first = zf.read(names[0])
+            self.assertEqual(len(names), 3)                # 封面 + 2 页
+            self.assertEqual(first, PNG)                   # 封面在包内第一张
+
+    def test_recursive_pack_includes_parent_cover(self):
+        with workdir() as tmp:
+            for vol in ("第1话", "第2话"):
+                d = os.path.join(tmp, "Series", vol)
+                os.makedirs(d)
+                with open(os.path.join(d, "1.jpg"), "wb") as fh:
+                    fh.write(JPG)
+            with open(os.path.join(tmp, "Series", "cover.jpg"), "wb") as fh:
+                fh.write(PNG)
+
+            tree = packer.scan_tree(os.path.join(tmp, "Series"))
+            self.assertTrue(tree["ok"], tree)
+            self.assertEqual(tree["total"], 2)
+
+            res = packer.pack_many(tree["folders"], ["cbz"])
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(len(res["produced"]), 2)
+            for item in res["produced"]:
+                with zipfile.ZipFile(item["path"]) as zf:
+                    self.assertEqual(len(zf.infolist()), 2)   # 封面 + 1 页
+
+    def test_cover_image_goes_first(self):
+        with workdir() as tmp:
+            src = os.path.join(tmp, "第07话")
+            os.makedirs(src)
+            for name in ("1.jpg", "2.jpg", "10.jpg"):
+                with open(os.path.join(src, name), "wb") as fh:
+                    fh.write(JPG)
+            with open(os.path.join(src, "cover.png"), "wb") as fh:
+                fh.write(PNG)
+
+            info = packer.scan(src)
+            self.assertEqual([im["name"] for im in info["images"]],
+                             ["cover.png", "1.jpg", "2.jpg", "10.jpg"])
+            self.assertEqual(info["covers"], 1)
+
+            res = packer.pack(src, ["cbz"])
+            self.assertTrue(res["ok"], res)
+            with zipfile.ZipFile(res["produced"][0]["path"]) as zf:
+                names = [i.filename for i in zf.infolist()]
+                first = zf.read(names[0])
+            self.assertEqual(names, ["001.png", "002.jpg", "003.jpg", "004.jpg"])
+            self.assertEqual(first, PNG)             # 封面成了包内第一张
+
+    def test_cover_deleted_with_sources(self):
+        with workdir() as tmp:
+            src = os.path.join(tmp, "第08话")
+            os.makedirs(src)
+            for name in ("1.jpg", "2.jpg"):
+                with open(os.path.join(src, name), "wb") as fh:
+                    fh.write(JPG)
+            with open(os.path.join(src, "cover.jpg"), "wb") as fh:
+                fh.write(JPG)
+
+            res = packer.pack(src, ["cbz"], delete_source=True)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["deleted"], 3)      # 封面也进包了，才会一起删
+            self.assertTrue(res["removed_folder"])
+            self.assertFalse(os.path.exists(src))
+            with zipfile.ZipFile(res["produced"][0]["path"]) as zf:
+                self.assertEqual(len(zf.infolist()), 3)
+
     def test_pack_delete_source(self):
         with workdir() as tmp:
             src = os.path.join(tmp, "第04话")

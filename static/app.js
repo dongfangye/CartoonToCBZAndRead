@@ -144,6 +144,7 @@ function renderSummary() {
   ];
   if (info.ignored) bits.push(`<span class="warn">忽略 ${info.ignored} 个非图片文件</span>`);
   if (info.subdirs) bits.push(`<span class="warn">跳过 ${info.subdirs} 个子目录</span>`);
+  if (info.covers) bits.push(`<span class="ok-text">含 ${info.covers} 张封面</span>`);
   if (!info.count) bits.push(`<span class="bad">没有可打包的图片</span>`);
   s.innerHTML = bits.join("");
 }
@@ -200,6 +201,12 @@ function renderList() {
     old.className = "col-old";
     old.textContent = im.name;
     old.title = im.name;
+    if (im.cover) {
+      const tag = document.createElement("em");
+      tag.className = "cover-tag";
+      tag.textContent = "封面";
+      old.appendChild(tag);
+    }
 
     const size = document.createElement("span");
     size.className = "col-size";

@@ -343,6 +343,17 @@ input[type="text"]::placeholder { color: #5b6478; }
   white-space: nowrap;
 }
 .col-old { color: #a3abbd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cover-tag {
+  font-style: normal;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 20px;
+  border: 1px solid #1f3a25;
+  background: #0f1a12;
+  color: #7ee08a;
+  font-size: 10.5px;
+}
 .col-size {
   color: #6c7689;
   text-align: right;
