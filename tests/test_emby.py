@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""tests/test_emby.py — Emby 剧集整理：扫描 / 预览 / 执行 / 回滚"""
+"""tests/test_emby.py — Emby 剧集整理：扫描 / 预览 / 取消单个 / 执行 / 回滚"""
 
 from __future__ import annotations
 
@@ -50,24 +50,32 @@ class NamerBracketTest(unittest.TestCase):
 
 class EmbyTest(unittest.TestCase):
     def _tree(self, tmp):
-        touch(os.path.join(tmp, "第1集", "剧名 - 01.mp4"), b"one")
-        touch(os.path.join(tmp, "第1集", "剧名 - 01.chs.ass"), b"sub")
-        touch(os.path.join(tmp, "第2集", "剧名 - 02.mp4"), b"two")
-        touch(os.path.join(tmp, "第3集", "剧名 - 04.mp4"), b"four")
-        touch(os.path.join(tmp, "第3集", "note.txt"), b"keep")
+        touch(os.path.join(tmp, "剧名 - 01.mp4"), b"one")
+        touch(os.path.join(tmp, "剧名 - 01.chs.ass"), b"sub")
+        touch(os.path.join(tmp, "剧名 - 02.mp4"), b"two")
+        touch(os.path.join(tmp, "剧名 - 04.mp4"), b"four")
+        touch(os.path.join(tmp, "花絮.mp4"), b"extra")
+        touch(os.path.join(tmp, "note.txt"), b"keep")
 
     def payload(self, **kw):
-        p = {"show": "测试剧", "year": "2023", "season": "1", "delete_empty": True}
+        p = {"show": "测试剧", "year": "2023", "season": "1"}
         p.update(kw)
         return p
+
+    def test_scan_is_not_recursive(self):
+        with workdir() as tmp:
+            self._tree(tmp)
+            touch(os.path.join(tmp, "子文件夹", "剧名 - 09.mp4"))
+            res = emby.scan(tmp)
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["totals"]["videos"], 4)     # 不含子文件夹里的 1 个
 
     def test_scan_parses_episodes(self):
         with workdir() as tmp:
             self._tree(tmp)
             res = emby.scan(tmp)
-            self.assertTrue(res["ok"], res)
-            self.assertEqual(res["totals"]["videos"], 3)
-            self.assertEqual([r["episode"] for r in res["rows"]], [1, 2, 4])
+            eps = [r["episode"] for r in res["rows"] if r["status"] == "ok"]
+            self.assertEqual(eps, [1, 2, 4])
 
     def test_build_preview(self):
         with workdir() as tmp:
@@ -76,9 +84,30 @@ class EmbyTest(unittest.TestCase):
             self.assertTrue(p["ok"], p)
             self.assertEqual(p["show_dir"], "测试剧 (2023)")
             self.assertEqual(p["season_dir"], "Season 01")
-            names = [r["new_name"] for r in p["rows"]]
-            self.assertEqual(names, ["测试剧 S01E01.mp4", "测试剧 S01E02.mp4", "测试剧 S01E04.mp4"])
+            names = [r["new_name"] for r in p["rows"] if r["status"] == "ok"]
+            self.assertEqual(names,
+                             ["测试剧 S01E01.mp4", "测试剧 S01E02.mp4", "测试剧 S01E04.mp4"])
             self.assertEqual(p["missing"], [3])
+            self.assertEqual(p["totals"]["excluded"], 0)
+
+    def test_exclude_one_video(self):
+        with workdir() as tmp:
+            self._tree(tmp)
+            p = emby.build(tmp, self.payload(exclude=["剧名 - 02.mp4"]))
+            self.assertTrue(p["ok"], p)
+            self.assertEqual(p["totals"]["ok"], 2)
+            self.assertEqual(p["totals"]["excluded"], 1)
+            rows = {r["name"]: r for r in p["rows"]}
+            self.assertEqual(rows["剧名 - 02.mp4"]["status"], "skip")
+            self.assertEqual(rows["剧名 - 02.mp4"]["new_name"], "")
+
+            res = emby.apply(tmp, self.payload(exclude=["剧名 - 02.mp4"]))
+            self.assertTrue(res["ok"], res)
+            target = os.path.join(tmp, "测试剧 (2023)", "Season 01")
+            self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E01.mp4")))
+            self.assertFalse(os.path.exists(os.path.join(target, "测试剧 S01E02.mp4")))
+            # 被取消的那个留在原处
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "剧名 - 02.mp4")))
 
     def test_invalid_inputs(self):
         with workdir() as tmp:
@@ -87,7 +116,7 @@ class EmbyTest(unittest.TestCase):
                 p = emby.build(tmp, self.payload(**bad))
                 self.assertFalse(p["ok"], f"应当拒绝：{bad}")
 
-    def test_apply_moves_and_cleans(self):
+    def test_apply_moves(self):
         with workdir() as tmp:
             self._tree(tmp)
             res = emby.apply(tmp, self.payload())
@@ -97,17 +126,8 @@ class EmbyTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E01.chs.ass")))
             self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E02.mp4")))
             self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E04.mp4")))
-            # 第3集里有 note.txt，目录非空 → 不删
-            self.assertTrue(os.path.isdir(os.path.join(tmp, "第3集")))
-            self.assertFalse(os.path.isdir(os.path.join(tmp, "第1集")))
-
-    def test_keep_nonempty_when_delete_empty_off(self):
-        with workdir() as tmp:
-            self._tree(tmp)
-            res = emby.apply(tmp, self.payload(delete_empty=False))
-            self.assertTrue(res["ok"], res)
-            self.assertEqual(res["removed_dirs"], [])
-            self.assertTrue(os.path.isdir(os.path.join(tmp, "第1集")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "note.txt")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "花絮.mp4")))
 
     def test_move_failure_rolls_back(self):
         with workdir() as tmp:
@@ -126,7 +146,7 @@ class EmbyTest(unittest.TestCase):
 
             self.assertFalse(res["ok"])
             self.assertTrue(res["rolled_back"])
-            self.assertTrue(os.path.isfile(os.path.join(tmp, "第1集", "剧名 - 01.mp4")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "剧名 - 01.mp4")))
             self.assertFalse(os.path.isdir(os.path.join(tmp, "测试剧 (2023)")))
 
 

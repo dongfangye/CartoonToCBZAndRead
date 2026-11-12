@@ -748,25 +748,33 @@ class HttpTest(unittest.TestCase):
         self.assertIn(b"emby.js", body)
 
         root = os.path.join(self.tmp, "剧集")
-        chapter = os.path.join(root, "第1集")
-        os.makedirs(chapter)
-        with open(os.path.join(chapter, "剧名 - 01.mp4"), "wb") as fh:
+        os.makedirs(root)
+        for name in ("剧名 - 01.mp4", "剧名 - 02.mp4"):
+            with open(os.path.join(root, name), "wb") as fh:
+                fh.write(b"video")
+        # 子文件夹里的不应被扫描（非递归）
+        os.makedirs(os.path.join(root, "子目录"))
+        with open(os.path.join(root, "子目录", "剧名 - 09.mp4"), "wb") as fh:
             fh.write(b"video")
 
         scan = self.post("/api/emby/scan", {"path": root})
         self.assertTrue(scan["ok"], scan)
+        self.assertEqual(scan["totals"]["videos"], 2)
         self.assertEqual(scan["rows"][0]["episode"], 1)
 
         plan_payload = {"show": "测试剧", "year": "2023", "season": "1",
-                        "delete_empty": True}
+                        "exclude": ["剧名 - 02.mp4"]}
         build = self.post("/api/emby/build", {"path": root, "plan": plan_payload})
         self.assertTrue(build["ok"], build)
         self.assertEqual(build["rows"][0]["new_name"], "测试剧 S01E01.mp4")
+        self.assertEqual(build["totals"]["excluded"], 1)
 
         out = self.post("/api/emby/apply", {"path": root, "plan": plan_payload})
         self.assertTrue(out["ok"], out)
-        self.assertTrue(os.path.isfile(os.path.join(
-            root, "测试剧 (2023)", "Season 01", "测试剧 S01E01.mp4")))
+        target = os.path.join(root, "测试剧 (2023)", "Season 01")
+        self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E01.mp4")))
+        self.assertFalse(os.path.exists(os.path.join(target, "测试剧 S01E02.mp4")))
+        self.assertTrue(os.path.isfile(os.path.join(root, "剧名 - 02.mp4")))
 
     def test_organize_page_and_api(self):
         status, _ctype, body = self.get("/organize")

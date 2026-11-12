@@ -48,33 +48,63 @@ def _unique(candidate: str, taken: set) -> str:
 
 
 def scan(root: str) -> dict:
-    """递归找视频，解析集数（不要求剧名）。"""
-    info = organizer.scan(root)
-    if not info.get("ok"):
-        return info
+    """只扫描当前这一层（不递归），避免把上次生成的 Season 目录又扫进来。"""
+    root = packer.normalize_path(root)
+    if not root:
+        return {"ok": False, "error": "请先选择文件夹"}
+    if not os.path.isdir(root):
+        return {"ok": False, "error": f"文件夹不存在：{root}"}
 
-    rows = []
-    for v in info["videos"]:
-        ep = namer.episode_info(v["name"])
-        row = dict(v)
-        if ep:
-            row.update(episode=ep["episode"], episode2=ep["episode2"],
-                       season_hint=ep["season"], status="ok", reason="")
-        else:
-            row.update(episode=None, episode2=None, season_hint=None,
-                       status="skip", reason="文件名里找不到集数")
-        rows.append(row)
+    base = os.path.abspath(root)
+    rows, total_bytes = [], 0
+    try:
+        with os.scandir(base) as it:
+            for entry in it:
+                try:
+                    if not entry.is_file(follow_symlinks=True):
+                        continue
+                except OSError:
+                    continue
+                ext = os.path.splitext(entry.name)[1].lower()
+                if ext not in namer.VIDEO_EXTS:
+                    continue
+                try:
+                    st = entry.stat(follow_symlinks=True)
+                except OSError:
+                    continue
 
-    ok = [r for r in rows if r["status"] == "ok"]
+                ep = namer.episode_info(entry.name)
+                subs = organizer._find_subs(entry.path)
+                total_bytes += st.st_size
+                rows.append({
+                    "id": entry.name,
+                    "name": entry.name,
+                    "rel": entry.name,
+                    "path": entry.path,
+                    "dir": "",
+                    "ext": ext,
+                    "size": st.st_size,
+                    "size_text": packer.human_size(st.st_size),
+                    "subs": subs,
+                    "episode": ep["episode"] if ep else None,
+                    "episode2": ep["episode2"] if ep else None,
+                    "season_hint": ep["season"] if ep else None,
+                    "status": "ok" if ep else "skip",
+                    "reason": "" if ep else "文件名里找不到集数",
+                })
+    except OSError as exc:
+        return {"ok": False, "error": f"无法读取文件夹：{exc}"}
+
+    rows.sort(key=lambda r: packer.natural_key(r["name"]))
+    ok = sum(1 for r in rows if r["status"] == "ok")
     return {
         "ok": True,
-        "root": info["root"],
-        "name": info["name"],
+        "root": base,
+        "name": os.path.basename(base.rstrip("\\/")) or base,
         "rows": rows,
-        "dirs": info["dirs"],
-        "totals": {"videos": len(rows), "ok": len(ok), "skip": len(rows) - len(ok),
-                   "bytes": info["totals"]["bytes"],
-                   "size_text": info["totals"]["size_text"]},
+        "totals": {"videos": len(rows), "ok": ok, "skip": len(rows) - ok,
+                   "bytes": total_bytes,
+                   "size_text": packer.human_size(total_bytes)},
     }
 
 
@@ -106,11 +136,20 @@ def build(root: str, payload: dict) -> dict:
     season_dir_name = f"Season {season:02d}"
     target_dir = os.path.join(base, show_dir, season_dir_name)
 
+    raw_exclude = payload.get("exclude") or []
+    if not isinstance(raw_exclude, list):
+        raw_exclude = []
+    excluded = {str(x) for x in raw_exclude}
+
     taken = set()
     rows = []
     for row in info["rows"]:
         if row["status"] != "ok":
             rows.append(dict(row, new_name="", reason=row["reason"]))
+            continue
+        if row["id"] in excluded:
+            rows.append(dict(row, new_name="", status="skip",
+                             reason="已取消：不参与本次整理"))
             continue
         tag = f"S{season:02d}E{row['episode']:02d}"
         if row.get("episode2"):
@@ -118,7 +157,8 @@ def build(root: str, payload: dict) -> dict:
         new_name = _unique(f"{show} {tag}{row['ext']}", taken)
         rows.append(dict(row, new_name=new_name))
 
-    episodes = [r["episode"] for r in info["rows"] if r["status"] == "ok"]
+    included = [r for r in rows if r["status"] == "ok"]
+    episodes = [r["episode"] for r in included]
     missing = []
     if episodes:
         missing = [n for n in range(min(episodes), max(episodes) + 1)
@@ -136,15 +176,16 @@ def build(root: str, payload: dict) -> dict:
         "rows": rows,
         "missing": missing,
         "totals": {"videos": len(info["rows"]),
-                   "ok": len(episodes),
-                   "skip": len(info["rows"]) - len(episodes),
+                   "ok": len(included),
+                   "skip": len(rows) - len(included),
+                   "excluded": sum(1 for r in rows if r["id"] in excluded),
                    "missing": len(missing)},
         "conflict_note": "目标目录里已有同名文件时会自动加 (2)",
     }
 
 
 def apply(root: str, payload: dict) -> dict:
-    """建目录 + 移动/改名（+ 字幕），失败回滚；可选删空目录。"""
+    """建目录 + 移动/改名（+ 字幕），失败回滚。"""
     plan = build(root, payload)
     if not plan.get("ok"):
         return plan
@@ -182,10 +223,6 @@ def apply(root: str, payload: dict) -> dict:
         return {"ok": False, "error": f"整理失败，已回滚：{exc}",
                 "rolled_back": True, "rollback_errors": errors}
 
-    removed = []
-    if payload.get("delete_empty"):
-        removed = _remove_empty_dirs(base)
-
     return {
         "ok": True,
         "root": base,
@@ -194,22 +231,5 @@ def apply(root: str, payload: dict) -> dict:
         "moved": moved,
         "subs": subs_moved,
         "skipped": plan["totals"]["skip"],
-        "removed_dirs": removed,
+        "excluded": plan["totals"].get("excluded", 0),
     }
-
-
-def _remove_empty_dirs(base: str) -> list:
-    """删掉整理后变空的旧目录（不删根目录）。"""
-    removed = []
-    try:
-        for dirpath, dirnames, _files in os.walk(base, topdown=False):
-            if os.path.normcase(dirpath) == os.path.normcase(base):
-                continue
-            try:
-                os.rmdir(dirpath)
-                removed.append(os.path.relpath(dirpath, base))
-            except OSError:
-                continue
-    except OSError:
-        pass
-    return removed

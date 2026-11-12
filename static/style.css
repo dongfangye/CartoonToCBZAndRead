@@ -706,6 +706,9 @@ input[type="text"]::placeholder { color: #5b6478; }
 .rt-old { color: #a3abbd; max-width: 340px; word-break: break-all; }
 .rt-title { color: #dfe5f0; white-space: nowrap; }
 .rt-se { color: #8fb6ff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rt-pick { width: 56px; text-align: center; }
+.rt-pick input { accent-color: var(--accent); cursor: pointer; }
+.rename-table tr.excluded td { opacity: .45; }
 .rt-new {
   color: #8fb6ff;
   font-family: "Cascadia Mono", Consolas, monospace;

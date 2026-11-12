@@ -8,6 +8,7 @@ const state = {
   root: "",
   scan: null,
   preview: null,
+  excluded: new Set(),
   running: false,
 };
 
@@ -64,12 +65,10 @@ async function scan() {
     state.root = r.root;
     state.scan = r;
     state.preview = null;
+    state.excluded = new Set();
     $("#path").value = r.root;
     localStorage.setItem("comicpack.emby.path", r.root);
-    $("#summary").innerHTML =
-      `<span><b>${r.totals.videos}</b> 个视频</span>` +
-      `<span class="ok-text">${r.totals.ok} 个识别出集数</span>` +
-      (r.totals.skip ? `<span class="bad">${r.totals.skip} 个无法识别</span>` : "");
+    updateSummary();
     $("#btn-preview").disabled = !r.totals.ok;
     $("#btn-apply").disabled = true;
     renderRows(r.rows, null);
@@ -101,6 +100,24 @@ function renderRows(rows, previewRows) {
   const frag = document.createDocumentFragment();
   rows.forEach((r) => {
     const tr = document.createElement("tr");
+    if (state.excluded.has(r.id)) tr.classList.add("excluded");
+
+    const pick = document.createElement("td");
+    pick.className = "rt-pick";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = r.status === "ok" && !state.excluded.has(r.id);
+    cb.disabled = r.status !== "ok";
+    cb.title = cb.disabled ? "识别不出集数，无法参与" : "取消勾选就跳过这个文件";
+    cb.addEventListener("change", () => {
+      if (cb.checked) state.excluded.delete(r.id);
+      else state.excluded.add(r.id);
+      state.preview = null;
+      $("#btn-apply").disabled = true;
+      renderRows(state.scan.rows, null);
+      updateSummary();
+    });
+    pick.appendChild(cb);
 
     const old = document.createElement("td");
     old.className = "rt-old";
@@ -120,14 +137,31 @@ function renderRows(rows, previewRows) {
     const badge = document.createElement("span");
     const status = p ? p.status : r.status;
     badge.className = "badge " + status;
-    badge.textContent = status === "ok" ? (p ? "可整理" : "识别到") : "无法识别";
-    if (r.reason) badge.title = r.reason;
+    if (status === "ok") badge.textContent = p ? "可整理" : "识别到";
+    else if (state.excluded.has(r.id)) badge.textContent = "已取消";
+    else badge.textContent = "无法识别";
+    const reason = p ? p.reason : r.reason;
+    if (reason) badge.title = reason;
     st.appendChild(badge);
 
-    tr.append(old, se, neu, st);
+    tr.append(pick, old, se, neu, st);
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
+}
+
+/* 顶部汇总：参与 / 已取消 / 无法识别 */
+function updateSummary() {
+  const scan = state.scan;
+  if (!scan) return;
+  const excluded = state.excluded.size;
+  const joined = Math.max(0, scan.totals.ok - excluded);
+  $("#summary").innerHTML =
+    `<span><b>${scan.totals.videos}</b> 个视频</span>` +
+    `<span class="ok-text">${joined} 个参与</span>` +
+    (excluded ? `<span class="warn">${excluded} 个已取消</span>` : "") +
+    (scan.totals.skip ? `<span class="bad">${scan.totals.skip} 个无法识别</span>` : "");
+  $("#btn-preview").disabled = joined === 0;
 }
 
 /* ---------------- 预览与执行 ---------------- */
@@ -136,7 +170,7 @@ function payload() {
     show: $("#show").value.trim(),
     year: $("#year").value.trim(),
     season: $("#season").value.trim() || "1",
-    delete_empty: $("#delete-empty").checked,
+    exclude: [...state.excluded],
   };
 }
 
@@ -149,10 +183,11 @@ async function preview() {
     state.preview = r;
     $("#summary").innerHTML =
       `<span>目标：<b>${escapeHtml(r.show_dir)}\\${escapeHtml(r.season_dir)}</b></span>` +
-      `<span class="ok-text">${r.totals.ok} 个视频</span>` +
+      `<span class="ok-text">${r.totals.ok} 个参与</span>` +
+      (r.totals.excluded ? `<span class="warn">${r.totals.excluded} 个已取消</span>` : "") +
       (r.missing.length ? `<span class="warn">缺号：${r.missing.join(", ")}</span>` : "");
     renderRows(state.scan.rows, r.rows);
-    $("#btn-apply").disabled = false;
+    $("#btn-apply").disabled = r.totals.ok === 0;
   } catch (e) {
     toast(e.message);
   }
@@ -162,7 +197,7 @@ async function applyPlan() {
   if (!state.preview) return;
   const ok = confirm(
     `将把 ${state.preview.totals.ok} 个视频整理到：\n${state.preview.target_dir}\n\n` +
-    `原目录里被移空的文件夹会被删除（不删非空目录）。\n确定继续吗？`
+    `没勾选「参与」的视频会留在原文件夹。\n确定继续吗？`
   );
   if (!ok) return;
 
@@ -199,10 +234,10 @@ function renderResult(r) {
   note.textContent = `输出：${r.target_dir}`;
   note.title = r.target_dir;
   box.appendChild(note);
-  if (r.removed_dirs && r.removed_dirs.length) {
+  if (r.excluded) {
     const more = document.createElement("div");
     more.className = "result-note";
-    more.textContent = `清理空目录 ${r.removed_dirs.length} 个`;
+    more.textContent = `跳过 ${r.excluded} 个（已取消参与）`;
     box.appendChild(more);
   }
 }

@@ -33,7 +33,7 @@
   <section class="panel panel-left">
     <div class="panel-head">
       <h2>视频文件夹</h2>
-      <span class="hint">递归扫描，自动识别集数</span>
+      <span class="hint">只扫描当前这一层，不递归子文件夹</span>
     </div>
 
     <div class="path-row">
@@ -49,6 +49,7 @@
       <table id="table" class="rename-table hidden">
         <thead>
           <tr>
+            <th class="rt-c-pick">参与</th>
             <th class="rt-c-old">原文件名</th>
             <th class="rt-c-se">集</th>
             <th class="rt-c-new">新文件名</th>
@@ -85,11 +86,7 @@
 
     <div class="group">
       <div class="group-title">处理方式</div>
-      <label class="check">
-        <input type="checkbox" id="delete-empty" checked>
-        <span class="check-box"></span>
-        <span class="check-main">删除移空的旧目录<em>只删空目录，非空的保持原样</em></span>
-      </label>
+      <p class="tip">只处理当前文件夹这一层的视频；不确定是不是这部剧的，取消勾选「参与」即可跳过。</p>
     </div>
 
     <div class="spacer"></div>
