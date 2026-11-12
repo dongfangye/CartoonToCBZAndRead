@@ -742,6 +742,32 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(len(res["produced"]), 2)
         self.assertTrue(os.path.isfile(os.path.join(root, "书A.cbz")))
 
+    def test_emby_page_and_api(self):
+        status, _ctype, body = self.get("/emby")
+        self.assertEqual(status, 200)
+        self.assertIn(b"emby.js", body)
+
+        root = os.path.join(self.tmp, "剧集")
+        chapter = os.path.join(root, "第1集")
+        os.makedirs(chapter)
+        with open(os.path.join(chapter, "剧名 - 01.mp4"), "wb") as fh:
+            fh.write(b"video")
+
+        scan = self.post("/api/emby/scan", {"path": root})
+        self.assertTrue(scan["ok"], scan)
+        self.assertEqual(scan["rows"][0]["episode"], 1)
+
+        plan_payload = {"show": "测试剧", "year": "2023", "season": "1",
+                        "delete_empty": True}
+        build = self.post("/api/emby/build", {"path": root, "plan": plan_payload})
+        self.assertTrue(build["ok"], build)
+        self.assertEqual(build["rows"][0]["new_name"], "测试剧 S01E01.mp4")
+
+        out = self.post("/api/emby/apply", {"path": root, "plan": plan_payload})
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(os.path.isfile(os.path.join(
+            root, "测试剧 (2023)", "Season 01", "测试剧 S01E01.mp4")))
+
     def test_organize_page_and_api(self):
         status, _ctype, body = self.get("/organize")
         self.assertEqual(status, 200)

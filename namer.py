@@ -44,12 +44,23 @@ _CN_EP = re.compile(r"第\s*(\d{1,3})\s*[集话話期]")
 _CN_SEASON = re.compile(r"第\s*([0-9一二三四五六七八九十]{1,3})\s*[季部]")
 _EN_SEASON = re.compile(r"(?i)\bseason\s*(\d{1,2})\b")
 _EN_EP = re.compile(r"(?i)(?:^|[^a-z0-9])ep?\s*(\d{1,3})(?!\d)")
-_BRACKET_EP = re.compile(r"[\[【]\s*(\d{1,3})(?:v\d+)?\s*[\]】]")
+_BRACKET_EP = re.compile(r"[\[【(（]\s*(\d{1,3})(?:v\d+)?\s*[\]】)）]")
 _DASH_EP = re.compile(r"[-_~]\s*(\d{1,3})(?:v\d+)?(?=\s*(?:[\[\(【（]|$))")
 _BARE_NUM = re.compile(r"^\s*(\d{1,3})(?:v\d+)?\s*$")
 
 _BRACKETS = re.compile(r"[\[\(【（][^\]\)】）]*[\]\)】）]")
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_CJK = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _bracket_cjk(text: str) -> str:
+    """从括号里挑一段含中文的名称，例如「1-【菠萝吹吹 …】(61)」里的「菠萝吹吹 …」。"""
+    best = ""
+    for m in re.finditer(r"[\[【(（]([^\]\)】）]+)[\]】)）]", text):
+        inner = m.group(1).strip()
+        if inner and _CJK.search(inner) and len(inner) > len(best):
+            best = inner
+    return best
 
 
 class ParseError(Exception):
@@ -146,7 +157,13 @@ def parse(name: str, folder_name: str = "") -> dict:
     if not found:
         raise ParseError("没找到集数（支持 S01E01 / 第01集 / EP01 / [01] / 剧名 - 01）")
 
-    title = _clean_title(base[:found["cut"]]) if found["cut"] > 0 else ""
+    raw_title = base[:found["cut"]] if found["cut"] > 0 else ""
+    title = _clean_title(raw_title)
+    # 「1-【剧名】(61)」这种：括号里的中文才是剧名
+    if not title or title.isdigit():
+        inner = _bracket_cjk(raw_title)
+        if inner:
+            title = _clean_title(inner)
     if not title:
         title = _clean_title(folder_name)
     if not title:
@@ -162,6 +179,19 @@ def parse(name: str, folder_name: str = "") -> dict:
         "episode": found["episode"],
         "episode2": found["episode2"],
     }
+
+
+def episode_info(name: str) -> dict | None:
+    """只取季/集，不要求能认出剧名（给「剧集名用户自己填」的场景用）。"""
+    base = os.path.splitext(name)[0]
+    found = _find_episode(base)
+    if not found:
+        return None
+    season = found["season"] or 1
+    if season < 1 or season > 99:
+        season = 1
+    return {"season": season, "episode": found["episode"],
+            "episode2": found["episode2"]}
 
 
 def build_name(parsed: dict, ext: str) -> str:

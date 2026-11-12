@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComicPack · Emby 剧集</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">📺</span>
+    <div class="brand-text">
+      <h1>ComicPack <span class="tag">剧集</span></h1>
+      <p>整理成 Emby 认的剧集结构</p>
+    </div>
+  </div>
+  <nav class="nav">
+    <a class="ghost" href="/">打包</a>
+    <a class="ghost" href="/reader">阅读</a>
+    <a class="ghost" href="/rename">改名</a>
+    <a class="ghost" href="/organize">整理</a>
+    <a class="ghost" href="/emby" aria-current="page">剧集</a>
+  </nav>
+  <button id="btn-quit" class="ghost" title="停止本地服务">关闭服务</button>
+</header>
+
+<main class="layout">
+
+  <!-- ============ 左：视频清单 ============ -->
+  <section class="panel panel-left">
+    <div class="panel-head">
+      <h2>视频文件夹</h2>
+      <span class="hint">递归扫描，自动识别集数</span>
+    </div>
+
+    <div class="path-row">
+      <input id="path" type="text" spellcheck="false"
+             placeholder="粘贴路径，例如 C:\迅雷下载\其他">
+      <button id="btn-browse" class="btn btn-primary">浏览…</button>
+      <button id="btn-scan" class="btn">扫描</button>
+    </div>
+
+    <div id="summary" class="summary">尚未选择文件夹</div>
+
+    <div class="list-wrap">
+      <table id="table" class="rename-table hidden">
+        <thead>
+          <tr>
+            <th class="rt-c-old">原文件名</th>
+            <th class="rt-c-se">集</th>
+            <th class="rt-c-new">新文件名</th>
+            <th class="rt-c-status">状态</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="list-empty" class="empty">
+        <div class="empty-icon">📺</div>
+        <p>选择文件夹后，这里会列出识别出的集号和新文件名</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 右：剧集信息与执行 ============ -->
+  <aside class="panel panel-right">
+    <div class="panel-head"><h2>剧集信息</h2></div>
+
+    <div class="group">
+      <div class="group-title">剧名 <span class="sub">必填</span></div>
+      <input id="show" type="text" spellcheck="false" placeholder="例如：菠萝吹吹">
+      <p class="tip">用哪个名字给 Emby 刮削，就填哪个；不会从文件名里猜。</p>
+    </div>
+
+    <div class="group">
+      <div class="group-title">年份 / 季</div>
+      <div class="path-row">
+        <input id="year" type="text" inputmode="numeric" placeholder="年份（可空）">
+        <input id="season" type="text" inputmode="numeric" value="1" placeholder="季">
+      </div>
+      <p class="tip">生成 <code>剧名 (年份)/Season 01/剧名 S01E01.mp4</code>。</p>
+    </div>
+
+    <div class="group">
+      <div class="group-title">处理方式</div>
+      <label class="check">
+        <input type="checkbox" id="delete-empty" checked>
+        <span class="check-box"></span>
+        <span class="check-main">删除移空的旧目录<em>只删空目录，非空的保持原样</em></span>
+      </label>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div id="result-box" class="result-box hidden"></div>
+    <button id="btn-preview" class="btn" disabled>预览</button>
+    <button id="btn-apply" class="btn btn-start" disabled>确定整理</button>
+  </aside>
+
+</main>
+
+<div id="toast" class="toast"></div>
+<script src="/static/emby.js"></script>
+</body>
+</html>

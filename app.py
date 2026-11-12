@@ -9,6 +9,7 @@ app.py — ComicPack 本地 Web 服务
   /reader  阅读：直接翻看 CBZ / ZIP（或图片文件夹）
   /rename  改名：剧集视频按 Emby 规则改名（先预览再执行）
   /organize 整理：按文件夹归置视频、改名，并清理旧目录
+  /emby    剧集：填剧名/年份/季，整理成 Emby 剧集结构
 
 接口：
   POST /api/browse             弹出 Windows 原生选目录框，返回真实路径
@@ -26,6 +27,9 @@ app.py — ComicPack 本地 Web 服务
   POST /api/organize/scan      扫描视频整理：递归找视频 + 同名字幕
   POST /api/organize/plan      预演整理计划（不落盘）
   POST /api/organize/apply     执行整理：同盘移动/改名，失败回滚
+  POST /api/emby/scan          扫描剧集：递归找视频并解析集数
+  POST /api/emby/build         预演 Emby 剧集结构（剧名/年份/季 由用户填）
+  POST /api/emby/apply         建 剧名/Season 01/ 并移动改名
   POST /api/shutdown           关闭服务
 
 只依赖 Python 标准库（zipfile / tkinter / http.server）。
@@ -46,6 +50,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import emby
 import namer
 import organizer
 import packer
@@ -223,6 +228,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._static("rename.html")
         if path in ("/organize", "/organize.html"):
             return self._static("organize.html")
+        if path in ("/emby", "/emby.html"):
+            return self._static("emby.html")
         if path.startswith("/static/"):
             return self._static(path[len("/static/"):])
         if path == "/api/health":
@@ -317,6 +324,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/organize/apply":
                 return self._json(organizer.apply(data.get("path") or "",
                                                   data.get("plan") or {}))
+            if path == "/api/emby/scan":
+                return self._json(emby.scan(data.get("path") or ""))
+            if path == "/api/emby/build":
+                return self._json(emby.build(data.get("path") or "",
+                                             data.get("plan") or {}))
+            if path == "/api/emby/apply":
+                return self._json(emby.apply(data.get("path") or "",
+                                             data.get("plan") or {}))
             if path == "/api/reveal":
                 target = packer.normalize_path(data.get("path") or "")
                 if target and os.path.exists(target):
