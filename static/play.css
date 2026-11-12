@@ -30,6 +30,44 @@ body { overflow: hidden; }
   border: 2px solid #141821;
 }
 
+input[type="text"].play-filter {
+  flex: 0 0 auto;
+  width: 100%;
+  height: 30px;
+  margin: 0 0 8px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0f131a;
+  color: #dfe5f0;
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+
+input[type="text"].play-filter:focus { border-color: #35507d; }
+
+.play-folder {
+  list-style: none;
+  margin: 10px 2px 6px;
+  font-size: 11px;
+  color: #6c7689;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.play-folder:first-child { margin-top: 0; }
+
+.play-empty-item {
+  list-style: none;
+  padding: 18px 6px;
+  color: #5f6a80;
+  font-size: 12px;
+  text-align: center;
+}
+
 .play-item {
   display: flex;
   align-items: center;

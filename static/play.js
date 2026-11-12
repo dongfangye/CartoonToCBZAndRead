@@ -10,6 +10,7 @@ const state = {
   items: [],
   current: null,
   seeking: false,
+  query: "",
 };
 
 const LS_VOLUME = "comicpack.play.volume";
@@ -76,10 +77,15 @@ async function scan() {
     if (!r.ok) throw new Error(r.error || "扫描失败");
     state.root = r.root;
     state.items = r.items;
+    state.query = "";
+    $("#filter").value = "";
     $("#path").value = r.root;
     localStorage.setItem(LS_PATH, r.root);
+    const dirs = new Set(r.items.map((i) => i.dir || ""));
     $("#summary").innerHTML =
-      `<span><b>${r.totals.videos}</b> 个视频</span><span>${r.totals.size_text}</span>`;
+      `<span><b>${r.totals.videos}</b> 个视频</span>` +
+      `<span>来自 ${dirs.size} 个文件夹</span>` +
+      `<span>${r.totals.size_text}</span>`;
     renderList();
     if (r.items.length) {
       const wanted = new URLSearchParams(location.search).get("file");
@@ -91,10 +97,36 @@ async function scan() {
   }
 }
 
+function visibleItems() {
+  const q = state.query.trim().toLowerCase();
+  if (!q) return state.items;
+  return state.items.filter((i) => (i.rel || i.name).toLowerCase().includes(q));
+}
+
 function renderList() {
   const ul = $("#playlist");
   ul.innerHTML = "";
-  state.items.forEach((item) => {
+  const items = visibleItems();
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "play-empty-item";
+    li.textContent = state.query ? "没有匹配的视频" : "这个文件夹里没有视频";
+    ul.appendChild(li);
+    return;
+  }
+
+  let lastDir = null;
+  items.forEach((item) => {
+    const dir = item.dir || "";
+    if (dir !== lastDir) {
+      const head = document.createElement("li");
+      head.className = "play-folder";
+      head.textContent = dir || "（根目录）";
+      head.title = dir;
+      ul.appendChild(head);
+      lastDir = dir;
+    }
+
     const li = document.createElement("li");
     li.className = "play-item";
     li.dataset.path = item.path;
@@ -102,7 +134,7 @@ function renderList() {
 
     const name = document.createElement("span");
     name.className = "play-item-name";
-    name.textContent = item.rel || item.name;
+    name.textContent = item.name;
 
     const meta = document.createElement("span");
     meta.className = "play-item-meta";
@@ -242,10 +274,11 @@ let wheelAcc = 0;
 let wheelLock = 0;
 
 function stepItem(dir) {
-  if (!state.items.length) return;
-  const idx = state.current ? state.items.findIndex((i) => i.path === state.current.path) : -1;
-  const next = idx < 0 ? 0 : (idx + dir + state.items.length) % state.items.length;
-  playItem(state.items[next], true);
+  const items = visibleItems();
+  if (!items.length) return;
+  const idx = state.current ? items.findIndex((i) => i.path === state.current.path) : -1;
+  const next = idx < 0 ? 0 : (idx + dir + items.length) % items.length;
+  playItem(items[next], true);
 }
 
 document.querySelector(".play-stage").addEventListener("wheel", (e) => {
@@ -276,6 +309,10 @@ document.querySelector(".play-stage").addEventListener("wheel", (e) => {
 $("#btn-browse").addEventListener("click", browse);
 $("#btn-scan").addEventListener("click", scan);
 $("#path").addEventListener("keydown", (e) => { if (e.key === "Enter") scan(); });
+$("#filter").addEventListener("input", () => {
+  state.query = $("#filter").value;
+  renderList();
+});
 
 $("#btn-quit").addEventListener("click", async () => {
   if (!confirm("关闭本地服务？关闭后页面将无法继续使用。")) return;
