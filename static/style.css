@@ -709,6 +709,20 @@ input[type="text"]::placeholder { color: #5b6478; }
 .rt-pick { width: 56px; text-align: center; }
 .rt-pick input { accent-color: var(--accent); cursor: pointer; }
 .rename-table tr.excluded td { opacity: .45; }
+.rename-table tr.edited .rt-old { color: #7ee08a; }
+.rename-table td.rt-old { cursor: text; }
+.rt-input {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid #35507d;
+  background: #0f131a;
+  color: #dfe5f0;
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
 .rt-new {
   color: #8fb6ff;
   font-family: "Cascadia Mono", Consolas, monospace;

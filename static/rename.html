@@ -14,7 +14,7 @@
     <span class="logo">🏷️</span>
     <div class="brand-text">
       <h1>ComicPack <span class="tag">改名</span></h1>
-      <p>剧集视频 → Emby 命名</p>
+      <p>双击文件名直接改，确认后应用</p>
     </div>
   </div>
   <nav class="nav">
@@ -33,7 +33,7 @@
   <section class="panel panel-left">
     <div class="panel-head">
       <h2>视频文件夹</h2>
-      <span class="hint">只处理这一层视频，字幕 / nfo 不动</span>
+      <span class="hint">只列这一层的视频，双击名字就能改</span>
     </div>
 
     <div class="path-row">
@@ -49,56 +49,47 @@
       <table id="table" class="rename-table hidden">
         <thead>
           <tr>
-            <th class="rt-c-old">原文件名</th>
-            <th class="rt-c-title">剧名</th>
-            <th class="rt-c-se">季 / 集</th>
-            <th class="rt-c-new">新文件名</th>
+            <th class="rt-c-old">文件名（双击修改）</th>
+            <th class="rt-c-title">大小</th>
             <th class="rt-c-status">状态</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
       <div id="list-empty" class="empty">
-        <div class="empty-icon">🎬</div>
-        <p>选择一个视频文件夹后，这里会列出识别结果和新文件名（预览，不会真的改）</p>
+        <div class="empty-icon">🏷️</div>
+        <p>选择一个文件夹后，这里会列出里面的视频；双击文件名即可改名</p>
       </div>
     </div>
   </section>
 
-  <!-- ================= 右：规则与执行 ================= -->
+  <!-- ================= 右：说明与执行 ================= -->
   <aside class="panel panel-right">
     <div class="panel-head">
-      <h2>命名规则</h2>
+      <h2>改名</h2>
     </div>
 
     <div class="group">
-      <div class="group-title">Emby 剧集格式 <span class="sub">固定模板</span></div>
-      <div class="output-preview">
-        剧名 S01E01.mkv<br>
-        剧名 S01E01-E02.mkv
-      </div>
+      <div class="group-title">怎么改</div>
       <p class="tip">
-        季集来自文件名：<code>S01E05</code>、<code>第5集</code>、<code>EP05</code>、
-        <code>[05]</code>、<code>剧名 - 05</code> 都能认；认不出季就按第 1 季。
-        剧名取集数前面的文字，没有就用文件夹名。
+        双击文件名 → 直接输入新名字 → 回车确认（Esc 取消）。<br>
+        改完点下面的「确认改名」才会真正落盘；在此之前只是预览。
       </p>
     </div>
 
     <div class="group">
-      <div class="group-title">本次识别</div>
+      <div class="group-title">本次</div>
       <ul class="stat-list" id="stats">
-        <li><span>可改名</span><b id="st-ok">0</b></li>
-        <li><span>已是规范名</span><b id="st-same">0</b></li>
-        <li><span>冲突 / 无法识别</span><b id="st-bad">0</b></li>
+        <li><span>视频</span><b id="st-total">0</b></li>
+        <li><span>已修改</span><b id="st-edited">0</b></li>
       </ul>
-      <p class="tip">只改名，不移动文件；目标名已存在就跳过，绝不覆盖。</p>
+      <p class="tip">只改名字、不能改扩展名；目标重名会跳过，绝不覆盖。</p>
     </div>
 
     <div class="spacer"></div>
 
     <div id="result-box" class="result-box hidden"></div>
-
-    <button id="btn-apply" class="btn btn-start" disabled>开始改名</button>
+    <button id="btn-apply" class="btn btn-start" disabled>确认改名</button>
   </aside>
 
 </main>

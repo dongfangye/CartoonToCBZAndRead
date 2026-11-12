@@ -1,20 +1,15 @@
-/* ComicPack — 视频改名页（原生 JS，无框架） */
+/* ComicPack — 手动改名页
+ * 扫描（只列这一层）→ 双击文件名编辑 → 确认改名
+ */
 
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
-  result: null,
-  running: false,
+  root: "",
+  videos: [],
+  edits: new Map(),      // 原文件名 -> 新文件名
 };
 
-const STATUS_TEXT = {
-  ok: "可改名",
-  same: "已是规范名",
-  conflict: "冲突",
-  skip: "无法识别",
-};
-
-/* ---------------- 工具 ---------------- */
 function toast(msg, ms = 3200) {
   const el = $("#toast");
   el.textContent = msg;
@@ -33,7 +28,7 @@ async function post(url, body) {
   return res.json();
 }
 
-/* ---------------- 选择与扫描 ---------------- */
+/* ---------------- 扫描 ---------------- */
 async function browse() {
   const btn = $("#btn-browse");
   const old = btn.textContent;
@@ -57,190 +52,149 @@ async function browse() {
 async function scan() {
   const path = $("#path").value.trim();
   if (!path) { toast("请先选择或输入文件夹路径"); return; }
-
   $("#summary").textContent = "正在扫描…";
   try {
-    const res = await post("/api/rename/scan", { path });
-    if (!res.ok) {
-      state.result = null;
-      $("#summary").innerHTML = `<span class="bad">${escapeHtml(res.error || "扫描失败")}</span>`;
-      render();
-      return;
-    }
-    state.result = res;
-    $("#path").value = res.folder;
-    localStorage.setItem("comicpack.rename.path", res.folder);
+    const r = await post("/api/rename/scan", { path });
+    if (!r.ok) throw new Error(r.error || "扫描失败");
+    state.root = r.root;
+    state.videos = r.videos;
+    state.edits.clear();
+    $("#path").value = r.root;
+    localStorage.setItem("comicpack.rename.path", r.root);
+    $("#summary").innerHTML =
+      `<span><b>${r.totals.videos}</b> 个视频</span>` +
+      `<span>${r.totals.size_text}</span>` +
+      (r.ignored ? `<span class="warn">忽略 ${r.ignored} 个非视频文件</span>` : "");
     render();
   } catch (e) {
-    state.result = null;
-    $("#summary").innerHTML = `<span class="bad">扫描失败：${escapeHtml(e.message)}</span>`;
+    state.videos = [];
+    $("#summary").innerHTML = `<span class="bad">扫描失败：${e.message}</span>`;
     render();
   }
 }
 
 /* ---------------- 渲染 ---------------- */
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
 function render() {
-  const res = state.result;
-  const stats = (res && res.stats) || { total: 0, ok: 0, same: 0, conflict: 0, skip: 0, ignored: 0 };
-
-  $("#st-ok").textContent = String(stats.ok);
-  $("#st-same").textContent = String(stats.same);
-  $("#st-bad").textContent = String(stats.conflict + stats.skip);
-
-  if (!res) {
-    $("#summary").textContent = "尚未选择文件夹";
-    $("#table").classList.add("hidden");
-    $("#list-empty").classList.remove("hidden");
-    $("#btn-apply").disabled = true;
-    return;
-  }
-
-  const bits = [`<span><b>${stats.total}</b> 个视频</span>`];
-  if (stats.ok) bits.push(`<span class="ok-text">${stats.ok} 个可改名</span>`);
-  if (stats.same) bits.push(`<span>${stats.same} 个已是规范名</span>`);
-  if (stats.conflict) bits.push(`<span class="warn">${stats.conflict} 个冲突</span>`);
-  if (stats.skip) bits.push(`<span class="bad">${stats.skip} 个无法识别</span>`);
-  if (stats.ignored) bits.push(`<span>忽略 ${stats.ignored} 个非视频文件</span>`);
-  $("#summary").innerHTML = bits.join("");
-
-  const table = $("#table");
   const tbody = $("#rows");
+  const table = $("#table");
+  const empty = $("#list-empty");
   tbody.innerHTML = "";
 
-  if (!res.items.length) {
+  if (!state.videos.length) {
     table.classList.add("hidden");
-    $("#list-empty").classList.remove("hidden");
-    $("#btn-apply").disabled = true;
+    empty.classList.remove("hidden");
+    updateStats();
     return;
   }
-
   table.classList.remove("hidden");
-  $("#list-empty").classList.add("hidden");
+  empty.classList.add("hidden");
 
   const frag = document.createDocumentFragment();
-  res.items.forEach((it) => {
+  state.videos.forEach((v) => {
     const tr = document.createElement("tr");
+    const edited = state.edits.has(v.name);
+    if (edited) tr.classList.add("edited");
 
-    const old = document.createElement("td");
-    old.className = "rt-old";
-    old.textContent = it.name;
-    old.title = it.name;
+    const name = document.createElement("td");
+    name.className = "rt-old";
+    name.textContent = edited ? state.edits.get(v.name) : v.name;
+    name.title = (edited ? "原名：" + v.name + "　" : "") + "双击改名";
+    name.addEventListener("dblclick", () => startEdit(name, v));
 
-    const title = document.createElement("td");
-    title.className = "rt-title";
-    title.textContent = it.title || "—";
-
-    const se = document.createElement("td");
-    se.className = "rt-se";
-    se.textContent = it.season ? `S${String(it.season).padStart(2, "0")}E${String(it.episode).padStart(2, "0")}` : "—";
-
-    const neu = document.createElement("td");
-    neu.className = "rt-new";
-    neu.textContent = it.new_name || "—";
-    neu.title = it.new_name || "";
+    const size = document.createElement("td");
+    size.className = "rt-title";
+    size.textContent = v.size_text;
 
     const st = document.createElement("td");
     const badge = document.createElement("span");
-    badge.className = "badge " + it.status;
-    badge.textContent = STATUS_TEXT[it.status] || it.status;
+    badge.className = "badge " + (edited ? "ok" : "skip");
+    badge.textContent = edited ? "已修改" : "未修改";
     st.appendChild(badge);
-    if (it.reason) {
-      badge.title = it.reason;
-      st.title = it.reason;
-    }
 
-    tr.append(old, title, se, neu, st);
+    tr.append(name, size, st);
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
-
-  $("#btn-apply").disabled = state.running || !stats.ok;
+  updateStats();
 }
 
-/* ---------------- 执行 ---------------- */
-async function apply() {
-  const res = state.result;
-  if (!res || !res.stats.ok) return;
+function updateStats() {
+  $("#st-total").textContent = String(state.videos.length);
+  $("#st-edited").textContent = String(state.edits.size);
+  $("#btn-apply").disabled = state.edits.size === 0;
+}
 
-  const ok = confirm(
-    `将把 ${res.stats.ok} 个视频改成 Emby 命名。\n` +
-    `只改文件名，不移动、不覆盖；确定继续吗？`
-  );
-  if (!ok) return;
+/* ---------------- 双击改名 ---------------- */
+function startEdit(td, video) {
+  if (td.querySelector("input")) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.spellcheck = false;
+  input.value = state.edits.get(video.name) || video.name;
+  input.className = "rt-input";
 
-  state.running = true;
-  const btn = $("#btn-apply");
-  btn.disabled = true;
-  btn.textContent = "改名中…";
+  const commit = () => {
+    if (!input.isConnected) return;
+    const val = input.value.trim();
+    if (!val || val === video.name) state.edits.delete(video.name);
+    else state.edits.set(video.name, val);
+    render();
+  };
 
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { e.preventDefault(); input.remove(); }
+  });
+  input.addEventListener("blur", commit);
+
+  td.textContent = "";
+  td.appendChild(input);
+  input.focus();
+  const dot = input.value.lastIndexOf(".");
+  input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+}
+
+/* ---------------- 应用 ---------------- */
+async function applyEdits() {
+  if (!state.edits.size) return;
+  const names = [...state.edits.entries()].map(([from, to]) => ({ from, to }));
+  if (!confirm(`确定把 ${names.length} 个文件改成新名字吗？`)) return;
+
+  $("#btn-apply").disabled = true;
   try {
-    const out = await post("/api/rename/apply", { path: res.folder });
-    if (!out.ok) throw new Error(out.error || "改名失败");
-    renderResult(out);
+    const r = await post("/api/rename/apply", { path: state.root, names });
+    if (!r.ok) { toast(r.error || "改名失败"); return; }
+    showResult(r);
     await scan();
   } catch (e) {
     toast(e.message);
   } finally {
-    state.running = false;
-    btn.textContent = "开始改名";
-    render();
+    $("#btn-apply").disabled = state.edits.size === 0;
   }
 }
 
-function renderResult(out) {
+function showResult(r) {
   const box = $("#result-box");
   box.classList.remove("hidden", "err");
   box.innerHTML = "";
-
   const head = document.createElement("div");
   head.className = "result-head";
-  head.textContent = `✅ 改名完成：${out.renamed.length} 个`;
+  head.textContent = `✅ 改名完成：${r.renamed.length} 个` +
+    (r.skipped.length ? `，跳过 ${r.skipped.length} 个` : "");
   box.appendChild(head);
-
-  out.renamed.slice(0, 8).forEach((r) => {
+  r.skipped.slice(0, 5).forEach((s) => {
     const row = document.createElement("div");
-    row.className = "result-item";
-    const name = document.createElement("span");
-    name.className = "result-name";
-    name.textContent = r.to;
-    name.title = `${r.from} → ${r.to}`;
-    row.appendChild(name);
+    row.className = "result-note";
+    row.textContent = `${s.name}：${s.reason}`;
     box.appendChild(row);
   });
-  if (out.renamed.length > 8) {
-    const more = document.createElement("div");
-    more.className = "result-note";
-    more.textContent = `… 另外 ${out.renamed.length - 8} 个`;
-    box.appendChild(more);
-  }
-  if (out.failed.length) {
-    const note = document.createElement("div");
-    note.className = "result-note";
-    note.textContent = `${out.failed.length} 个失败：` + out.failed.map((f) => f.name).join("，");
-    box.appendChild(note);
-  }
 }
 
 /* ---------------- 绑定 ---------------- */
 $("#btn-browse").addEventListener("click", browse);
 $("#btn-scan").addEventListener("click", scan);
-$("#btn-apply").addEventListener("click", apply);
-
-$("#path").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") scan();
-});
-
-let typeTimer = null;
-$("#path").addEventListener("input", () => {
-  clearTimeout(typeTimer);
-  typeTimer = setTimeout(() => {
-    if ($("#path").value.trim()) scan();
-  }, 700);
-});
+$("#btn-apply").addEventListener("click", applyEdits);
+$("#path").addEventListener("keydown", (e) => { if (e.key === "Enter") scan(); });
 
 $("#btn-quit").addEventListener("click", async () => {
   if (!confirm("关闭本地服务？关闭后页面将无法继续使用。")) return;

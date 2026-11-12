@@ -70,59 +70,75 @@ class ScanApplyTest(unittest.TestCase):
             fh.write(data)
         return path
 
-    def test_scan_preview(self):
+    def test_scan_lists_videos_only(self):
         with workdir() as tmp:
-            self._touch(tmp, "[Group] 剧名 - 01 [1080p].mkv")
-            self._touch(tmp, "剧名 - 02 [1080p].mkv")
+            self._touch(tmp, "第01话 1080p.mkv")
+            self._touch(tmp, "第02话 1080p.mkv")
             self._touch(tmp, "note.txt")
+            os.makedirs(os.path.join(tmp, "子目录"))
 
             res = namer.scan(tmp)
             self.assertTrue(res["ok"], res)
-            self.assertEqual(res["stats"]["total"], 2)
-            self.assertEqual(res["stats"]["ignored"], 1)
-            self.assertEqual([i["new_name"] for i in res["items"]],
-                             ["剧名 S01E01.mkv", "剧名 S01E02.mkv"])
-            self.assertTrue(all(i["status"] == "ok" for i in res["items"]))
-            # 预览不应落盘
-            self.assertTrue(os.path.exists(os.path.join(tmp, "[Group] 剧名 - 01 [1080p].mkv")))
+            self.assertEqual(res["totals"]["videos"], 2)      # 不递归
+            self.assertEqual(res["ignored"], 1)
+            self.assertEqual([v["name"] for v in res["videos"]],
+                             ["第01话 1080p.mkv", "第02话 1080p.mkv"])
 
     def test_apply_renames_and_keeps_content(self):
         with workdir() as tmp:
-            self._touch(tmp, "剧名 - 01 [1080p].mkv", b"one")
-            res = namer.apply(tmp)
+            self._touch(tmp, "第01话 1080p.mkv", b"one")
+            res = namer.apply(tmp, [{"from": "第01话 1080p.mkv", "to": "第一话.mkv"}])
             self.assertTrue(res["ok"], res)
             self.assertEqual(len(res["renamed"]), 1)
-            self.assertEqual(os.listdir(tmp), ["剧名 S01E01.mkv"])
-            with open(os.path.join(tmp, "剧名 S01E01.mkv"), "rb") as fh:
+            self.assertEqual(os.listdir(tmp), ["第一话.mkv"])
+            with open(os.path.join(tmp, "第一话.mkv"), "rb") as fh:
                 self.assertEqual(fh.read(), b"one")
 
     def test_apply_skips_conflicts(self):
         with workdir() as tmp:
-            self._touch(tmp, "剧名 - 01.mkv", b"old")
-            self._touch(tmp, "剧名 S01E01.mkv", b"exists")
-            res = namer.scan(tmp)
-            statuses = {i["name"]: i["status"] for i in res["items"]}
-            self.assertEqual(statuses["剧名 S01E01.mkv"], "same")
-            self.assertEqual(statuses["剧名 - 01.mkv"], "conflict")
-
-            out = namer.apply(tmp)
+            self._touch(tmp, "a.mkv", b"old")
+            self._touch(tmp, "b.mkv", b"exists")
+            out = namer.apply(tmp, [{"from": "a.mkv", "to": "b.mkv"}])
+            self.assertTrue(out["ok"], out)
             self.assertEqual(out["renamed"], [])
-            # 两个文件都还在，没被覆盖
-            self.assertEqual(sorted(os.listdir(tmp)), sorted(["剧名 - 01.mkv", "剧名 S01E01.mkv"]))
+            self.assertEqual(len(out["skipped"]), 1)
+            self.assertEqual(sorted(os.listdir(tmp)), ["a.mkv", "b.mkv"])
 
-    def test_apply_only_selected(self):
+    def test_apply_allows_swap(self):
         with workdir() as tmp:
-            self._touch(tmp, "剧名 - 01.mkv")
-            self._touch(tmp, "剧名 - 02.mkv")
-            out = namer.apply(tmp, names=["剧名 - 02.mkv"])
-            self.assertEqual([d["to"] for d in out["renamed"]], ["剧名 S01E02.mkv"])
-            self.assertIn("剧名 - 01.mkv", os.listdir(tmp))
+            self._touch(tmp, "a.mkv", b"A")
+            self._touch(tmp, "b.mkv", b"B")
+            out = namer.apply(tmp, [{"from": "a.mkv", "to": "b.mkv"},
+                                    {"from": "b.mkv", "to": "a.mkv"}])
+            self.assertTrue(out["ok"], out)
+            self.assertEqual(len(out["renamed"]), 2)
+            with open(os.path.join(tmp, "a.mkv"), "rb") as fh:
+                self.assertEqual(fh.read(), b"B")
+            with open(os.path.join(tmp, "b.mkv"), "rb") as fh:
+                self.assertEqual(fh.read(), b"A")
+
+    def test_apply_rejects_bad_names(self):
+        with workdir() as tmp:
+            self._touch(tmp, "a.mkv")
+            for bad in ("", "x/y.mkv", "换后缀.mp4"):
+                out = namer.apply(tmp, [{"from": "a.mkv", "to": bad}])
+                self.assertTrue(out["ok"], out)
+                self.assertEqual(out["renamed"], [])
+                self.assertEqual(len(out["skipped"]), 1, bad)
+            self.assertTrue(os.path.exists(os.path.join(tmp, "a.mkv")))
+
+    def test_apply_keeps_extension_when_missing(self):
+        with workdir() as tmp:
+            self._touch(tmp, "a.mkv")
+            out = namer.apply(tmp, [{"from": "a.mkv", "to": "新名字"}])
+            self.assertEqual([d["to"] for d in out["renamed"]], ["新名字.mkv"])
+            self.assertTrue(os.path.exists(os.path.join(tmp, "新名字.mkv")))
 
     def test_empty_folder(self):
         with workdir() as tmp:
             res = namer.scan(tmp)
             self.assertTrue(res["ok"])
-            self.assertEqual(res["stats"]["total"], 0)
+            self.assertEqual(res["totals"]["videos"], 0)
 
 
 if __name__ == "__main__":

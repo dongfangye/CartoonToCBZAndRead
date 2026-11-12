@@ -50,6 +50,8 @@ _BARE_NUM = re.compile(r"^\s*(\d{1,3})(?:v\d+)?\s*$")
 
 _BRACKETS = re.compile(r"[\[\(【（][^\]\)】）]*[\]\)】）]")
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {
+    f"lpt{i}" for i in range(1, 10)}
 _CJK = re.compile(r"[\u4e00-\u9fff]")
 
 
@@ -203,15 +205,14 @@ def build_name(parsed: dict, ext: str) -> str:
 
 
 def scan(folder: str) -> dict:
-    """扫描文件夹里的视频，给出改名建议（不落盘）。"""
+    """只列当前这一层的视频文件（不解析、不改名），给手动改名用。"""
     folder = packer.normalize_path(folder)
     if not folder:
         return {"ok": False, "error": "请先选择文件夹"}
     if not os.path.isdir(folder):
         return {"ok": False, "error": f"文件夹不存在：{folder}"}
 
-    folder_name = os.path.basename(folder.rstrip("\\/"))
-    files, ignored = [], 0
+    videos, ignored = [], 0
     try:
         with os.scandir(folder) as it:
             for entry in it:
@@ -227,103 +228,140 @@ def scan(folder: str) -> dict:
                     st = entry.stat(follow_symlinks=True)
                 except OSError:
                     continue
-                files.append({"name": entry.name, "size": st.st_size, "ext": os.path.splitext(entry.name)[1]})
+                videos.append({
+                    "name": entry.name,
+                    "ext": os.path.splitext(entry.name)[1].lower(),
+                    "size": st.st_size,
+                    "size_text": packer.human_size(st.st_size),
+                })
     except OSError as exc:
         return {"ok": False, "error": f"无法读取文件夹：{exc}"}
 
-    files.sort(key=lambda f: packer.natural_key(f["name"]))
-    items = []
-    taken = {}
-    for info in files:
-        item = {
-            "name": info["name"],
-            "size": info["size"],
-            "size_text": packer.human_size(info["size"]),
-            "title": "",
-            "season": None,
-            "episode": None,
-            "new_name": "",
-            "status": "ok",
-            "reason": "",
-        }
-        try:
-            parsed = parse(info["name"], folder_name)
-        except ParseError as exc:
-            item.update(status="skip", reason=str(exc))
-            items.append(item)
-            continue
-
-        item.update(title=parsed["title"], season=parsed["season"], episode=parsed["episode"])
-        new_name = build_name(parsed, info["ext"])
-
-        if new_name == info["name"]:
-            item.update(status="same", new_name=new_name, reason="已经是规范名字")
-        else:
-            item["new_name"] = new_name
-            key = new_name.casefold()
-            if key in taken:
-                item.update(status="conflict", reason=f"和「{taken[key]}」改名后重名")
-            elif os.path.exists(os.path.join(folder, new_name)):
-                item.update(status="conflict", reason="目标文件名已存在")
-            else:
-                taken[key] = info["name"]
-        items.append(item)
-
-    stats = {"total": len(items), "ok": 0, "same": 0, "conflict": 0, "skip": 0}
-    for item in items:
-        stats[item["status"]] += 1
-    stats["ignored"] = ignored
-
+    videos.sort(key=lambda v: packer.natural_key(v["name"]))
+    total = sum(v["size"] for v in videos)
     return {
         "ok": True,
         "folder": folder,
-        "name": folder_name or folder,
-        "items": items,
-        "stats": stats,
+        "root": os.path.abspath(folder),
+        "name": os.path.basename(folder.rstrip("\\/")) or folder,
+        "videos": videos,
+        "ignored": ignored,
+        "totals": {"videos": len(videos), "bytes": total,
+                   "size_text": packer.human_size(total)},
     }
 
 
-def _rename(src: str, dst: str):
-    """改名；只有大小写不同时走中转名，避免 Windows 认为「已存在」。"""
-    if os.path.normcase(src) == os.path.normcase(dst):
-        tmp = dst + ".renaming"
-        os.rename(src, tmp)
-        os.rename(tmp, dst)
-    else:
-        os.rename(src, dst)
+def _valid_new_name(new: str, ext: str) -> str:
+    new = (new or "").strip()
+    if not new:
+        raise ValueError("名字不能为空")
+    if _ILLEGAL.search(new):
+        raise ValueError("名字里有非法字符")
+    if new.casefold() in _RESERVED:
+        raise ValueError("这是 Windows 保留名")
+    stem, got = os.path.splitext(new)
+    if not got:
+        return new + ext
+    if got.lower() != ext:
+        raise ValueError("不能改扩展名")
+    return new
 
 
-def apply(folder: str, names: list | None = None) -> dict:
-    """执行改名：只动扫描结果为 ok 的文件，绝不覆盖。"""
-    folder = packer.normalize_path(folder)
-    result = scan(folder)
-    if not result.get("ok"):
-        return result
+def _pairs_from(names) -> list:
+    """兼容 [{from,to}] / [[old,new]] / {old: new} 三种写法。"""
+    pairs = []
+    if names is None:
+        return pairs
+    if isinstance(names, dict):
+        return [(str(k), str(v)) for k, v in names.items()]
+    for item in names:
+        if isinstance(item, dict):
+            old = item.get("from", item.get("old"))
+            new = item.get("to", item.get("new"))
+            if old is not None and new is not None:
+                pairs.append((str(old), str(new)))
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            pairs.append((str(item[0]), str(item[1])))
+    return pairs
 
-    wanted = None if names is None else {str(n) for n in names}
-    done, failed = [], []
-    started = time.time()
 
-    for item in result["items"]:
-        if item["status"] != "ok":
+def apply(folder: str, names=None) -> dict:
+    """按用户给的新名字改名（同一层，绝不覆盖）。
+
+    names: [{"from": 旧名, "to": 新名}, ...]；也接受 {旧名: 新名}。
+    只允许改名字、不允许改扩展名；目标重名跳过；整体失败回滚。
+    """
+    info = scan(folder)
+    if not info.get("ok"):
+        return info
+
+    root = info["root"]
+    existing = {v["name"] for v in info["videos"]}
+    existing_cf = {n.casefold(): n for n in existing}
+
+    skipped = []
+    plan = []
+    unchanged = 0
+    sources_cf = set()
+    for old, new in _pairs_from(names):
+        if old not in existing:
+            skipped.append({"name": old, "reason": "文件不存在"})
             continue
-        if wanted is not None and item["name"] not in wanted:
-            continue
-        src = os.path.join(folder, item["name"])
-        dst = os.path.join(folder, item["new_name"])
-        if os.path.exists(dst) and os.path.normcase(src) != os.path.normcase(dst):
-            failed.append({"name": item["name"], "error": "目标文件名已存在"})
-            continue
+        sources_cf.add(old.casefold())
         try:
-            _rename(src, dst)
-            done.append({"from": item["name"], "to": item["new_name"]})
-        except OSError as exc:
-            failed.append({"name": item["name"], "error": str(exc)})
+            new = _valid_new_name(new, os.path.splitext(old)[1].lower())
+        except ValueError as exc:
+            skipped.append({"name": old, "reason": str(exc)})
+            continue
+        if new == old:
+            unchanged += 1
+            continue
+        plan.append([old, new])
+
+    targets = {}
+    final = []
+    for old, new in plan:
+        cf = new.casefold()
+        if cf in targets:
+            skipped.append({"name": old, "reason": f"和「{targets[cf]}」的新名字重复"})
+            continue
+        if cf in existing_cf and cf not in sources_cf:
+            skipped.append({"name": old, "reason": "目标文件名已存在"})
+            continue
+        targets[cf] = old
+        final.append([old, new])
+
+    renamed = []
+    journal = []
+    started = time.time()
+    try:
+        staged = []
+        for i, (old, new) in enumerate(final):
+            src = os.path.join(root, old)
+            tmp = os.path.join(root, f".renaming-{i}-{os.getpid()}.tmp")
+            os.rename(src, tmp)
+            journal.append((src, tmp))
+            staged.append((tmp, new, old))
+        for tmp, new, old in staged:
+            dst = os.path.join(root, new)
+            os.rename(tmp, dst)
+            journal.append((tmp, dst))
+            renamed.append({"from": old, "to": new})
+    except OSError as exc:
+        for a, b in reversed(journal):
+            try:
+                if os.path.exists(b):
+                    os.rename(b, a)
+            except OSError:
+                pass
+        return {"ok": False, "error": f"改名失败，已回滚：{exc}",
+                "rolled_back": True}
 
     return {
         "ok": True,
-        "folder": folder,
-        "renamed": done,
-        "failed": failed,
+        "folder": root,
+        "renamed": renamed,
+        "skipped": skipped,
+        "unchanged": unchanged,
         "elapsed": round(time.time() - started, 2),
     }

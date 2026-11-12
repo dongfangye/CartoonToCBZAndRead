@@ -809,18 +809,26 @@ class HttpTest(unittest.TestCase):
 
         folder = os.path.join(self.tmp, "改名")
         os.makedirs(folder)
-        with open(os.path.join(folder, "剧名 - 01 [1080p].mkv"), "wb") as fh:
+        with open(os.path.join(folder, "老名字.mkv"), "wb") as fh:
             fh.write(b"video")
+        with open(os.path.join(folder, "第二个.mp4"), "wb") as fh:
+            fh.write(b"video2")
 
         res = self.post("/api/rename/scan", {"path": folder})
         self.assertTrue(res["ok"], res)
-        self.assertEqual(res["items"][0]["new_name"], "剧名 S01E01.mkv")
-        self.assertEqual(res["stats"]["ok"], 1)
+        self.assertEqual([v["name"] for v in res["videos"]],
+                         ["第二个.mp4", "老名字.mkv"])
+        self.assertEqual(res["totals"]["videos"], 2)
 
-        out = self.post("/api/rename/apply", {"path": folder})
+        out = self.post("/api/rename/apply", {
+            "path": folder,
+            "names": [{"from": "老名字.mkv", "to": "新名字.mkv"},
+                      {"from": "第二个.mp4", "to": "换过.mp4"}],
+        })
         self.assertTrue(out["ok"], out)
-        self.assertEqual([d["to"] for d in out["renamed"]], ["剧名 S01E01.mkv"])
-        self.assertEqual(os.listdir(folder), ["剧名 S01E01.mkv"])
+        self.assertEqual(sorted(d["to"] for d in out["renamed"]),
+                         ["换过.mp4", "新名字.mkv"])
+        self.assertEqual(sorted(os.listdir(folder)), ["换过.mp4", "新名字.mkv"])
 
     def test_pages_served(self):
         status, ctype, body = self.get("/reader")
