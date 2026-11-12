@@ -11,7 +11,11 @@ const state = {
   current: null,
   seeking: false,
   query: "",
+  probe: new Map(),     // path -> {ok, codec, playable}
 };
+
+const BAD_EXTS = new Set([".mkv", ".avi", ".wmv", ".flv", ".rm", ".rmvb",
+                          ".mpg", ".mpeg", ".ts", ".m2ts", ".mts"]);
 
 const LS_VOLUME = "comicpack.play.volume";
 const LS_SPEED = "comicpack.play.speed";
@@ -32,6 +36,12 @@ async function post(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+async function getJson(url) {
+  const res = await fetch(url);
   if (!res.ok) throw new Error("HTTP " + res.status);
   return res.json();
 }
@@ -90,7 +100,9 @@ async function scan() {
     if (r.items.length) {
       const wanted = new URLSearchParams(location.search).get("file");
       const pick = wanted ? r.items.find((i) => i.name === wanted) : null;
-      playItem(pick || r.items[0], false);
+      const first = pick || r.items.find((i) => !unplayableByExt(i)) || r.items[0];
+      playItem(first, false);
+      probeAll();
     }
   } catch (e) {
     $("#summary").innerHTML = `<span class="bad">扫描失败：${e.message}</span>`;
@@ -101,6 +113,79 @@ function visibleItems() {
   const q = state.query.trim().toLowerCase();
   if (!q) return state.items;
   return state.items.filter((i) => (i.rel || i.name).toLowerCase().includes(q));
+}
+
+/* ---------------- 能不能播 ---------------- */
+function unplayableByExt(item) {
+  return BAD_EXTS.has((item.ext || "").toLowerCase());
+}
+
+function isUnplayable(item) {
+  const probed = state.probe.get(item.path);
+  if (probed && probed.ok) return probed.playable === false;
+  return unplayableByExt(item);
+}
+
+function markItem(item) {
+  const li = [...document.querySelectorAll(".play-item")]
+    .find((el) => el.dataset.path === item.path);
+  if (!li) return;
+  const probed = state.probe.get(item.path);
+  const meta = li.querySelector(".play-item-meta");
+  if (meta && probed && probed.ok && probed.codec) {
+    meta.textContent = `${item.size_text} · ${probed.codec.toUpperCase()}`;
+  }
+  if (isUnplayable(item)) {
+    li.classList.add("unplayable");
+    const codec = (probed && probed.ok && probed.codec)
+      ? probed.codec.toUpperCase()
+      : (item.ext || "").replace(".", "").toUpperCase();
+    li.title = `${item.rel}\n浏览器可能放不了（${codec}），可点右侧 ↗ 用系统播放器打开`;
+    if (!li.querySelector(".play-open")) {
+      const btn = document.createElement("button");
+      btn.className = "play-open";
+      btn.type = "button";
+      btn.textContent = "↗";
+      btn.title = "用系统播放器打开";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openInSystem(item);
+      });
+      li.appendChild(btn);
+    }
+  } else {
+    li.classList.remove("unplayable");
+    li.title = item.path;
+  }
+}
+
+async function openInSystem(item) {
+  try {
+    const r = await post("/api/video/open", { path: item.path });
+    toast(r.ok ? "已用系统播放器打开" : (r.error || "打开失败"));
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+/* 后台探测编码：让 HEVC/MKV 这类置灰（最多探 200 个，避免大目录卡住） */
+async function probeAll() {
+  const queue = state.items
+    .filter((i) => !state.probe.has(i.path) && !unplayableByExt(i))
+    .slice(0, 200);
+  const worker = async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        const res = await getJson("/api/video/probe?path=" + encodeURIComponent(item.path));
+        state.probe.set(item.path, res);
+      } catch (e) {
+        state.probe.set(item.path, { ok: false });
+      }
+      markItem(item);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
 }
 
 function renderList() {
@@ -141,8 +226,15 @@ function renderList() {
     meta.textContent = item.size_text;
 
     li.append(name, meta);
-    li.addEventListener("click", () => playItem(item, true));
+    li.addEventListener("click", () => {
+      if (isUnplayable(item)) {
+        toast("浏览器可能放不了这个编码，点右侧 ↗ 用系统播放器打开");
+        return;
+      }
+      playItem(item, true);
+    });
     ul.appendChild(li);
+    markItem(item);
   });
   highlight();
 }
@@ -209,9 +301,13 @@ video.addEventListener("error", () => {
   if (!video.currentSrc) return;
   const err = video.error;
   const code = err ? `（code ${err.code}）` : "";
+  const item = state.current;
+  const probed = item ? state.probe.get(item.path) : null;
+  const codec = probed && probed.ok && probed.codec ? `（${probed.codec.toUpperCase()}）` : "";
   $("#error").textContent =
-    `无法播放这个视频${code}：浏览器可能不支持它的编码/容器。` +
-    `建议转成 H.264 + AAC 的 MP4；MKV、HEVC 在部分浏览器里放不了。`;
+    `无法播放这个视频${code}${codec}：浏览器可能不支持它的编码/容器。` +
+    `可以点列表里该视频右侧的 ↗ 用系统播放器打开；` +
+    `也可以转成 H.264 + AAC 的 MP4。`;
   $("#error").classList.remove("hidden");
 });
 

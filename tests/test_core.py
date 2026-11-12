@@ -802,6 +802,33 @@ class HttpTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(root, "其他")))
         self.assertFalse(os.path.exists(os.path.join(root, "A")))
 
+    def test_video_probe_and_open(self):
+        missing = os.path.join(self.tmp, "不存在.mp4")
+        status, _ctype, body = self.get(
+            "/api/video/probe?path=" + urllib.parse.quote(missing))
+        self.assertEqual(status, 200)
+        self.assertFalse(json.loads(body)["ok"])
+
+        out = self.post("/api/video/open", {"path": missing})
+        self.assertFalse(out["ok"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "需要 ffmpeg 生成样片")
+    def test_video_probe_codec(self):
+        import subprocess
+
+        sample = os.path.join(self.tmp, "probe.mp4")
+        subprocess.run(
+            [shutil.which("ffmpeg"), "-y", "-v", "error", "-f", "lavfi",
+             "-i", "color=c=black:s=320x240:d=1", "-c:v", "libx264",
+             "-pix_fmt", "yuv420p", sample],
+            check=True, timeout=60, capture_output=True)
+        status, _ctype, body = self.get(
+            "/api/video/probe?path=" + urllib.parse.quote(sample))
+        res = json.loads(body)
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["codec"], "h264")
+        self.assertTrue(res["playable"])
+
     def test_video_stream_and_list(self):
         status, _ctype, body = self.get("/play")
         self.assertEqual(status, 200)

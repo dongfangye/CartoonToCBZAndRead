@@ -86,6 +86,25 @@ input[type="text"].play-filter:focus { border-color: #35507d; }
 .play-item.active { border-color: var(--accent); background: #16202e; }
 .play-item.active .play-item-name { color: #fff; }
 
+.play-item.unplayable { opacity: .5; }
+.play-item.unplayable .play-item-name { color: #6c7689; }
+.play-item.unplayable:hover { border-color: var(--line-soft); background: #12161e; }
+
+.play-open {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid #2f4a74;
+  background: rgba(76, 141, 255, .08);
+  color: #9fc0ff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.play-open:hover { background: rgba(76, 141, 255, .2); }
+
 .play-item-name {
   flex: 1 1 auto;
   min-width: 0;

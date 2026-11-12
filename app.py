@@ -33,6 +33,8 @@ app.py — ComicPack 本地 Web 服务
   POST /api/emby/apply         建 剧名/Season 01/ 并移动改名
   POST /api/video/list         列出文件夹里的视频（播放页用）
   GET  /api/video/stream       视频流（支持 Range，可拖动进度条，适合 4K）
+  GET  /api/video/probe        探测编码/容器，判断浏览器能不能播
+  POST /api/video/open         用系统默认播放器打开（MKV/HEVC 兜底）
   POST /api/shutdown           关闭服务
 
 只依赖 Python 标准库（zipfile / tkinter / http.server）。
@@ -68,6 +70,84 @@ _jobs: dict = {}
 _jobs_lock = threading.Lock()
 _dialog_lock = threading.Lock()
 _server_ref: dict = {"server": None}
+
+
+_BAD_CODECS = {"hevc", "h265", "mpeg2video", "mpeg4", "msmpeg4v3", "vc1",
+               "wmv3", "rv30", "rv40", "theora", "prores", "dnxhd"}
+_BAD_CONTAINERS = {"mkv", "avi", "wmv", "flv", "rm", "rmvb"}
+_BAD_EXTS = {".mkv", ".avi", ".wmv", ".flv", ".rm", ".rmvb",
+             ".mpg", ".mpeg", ".ts", ".m2ts", ".mts"}
+
+
+def probe_video(path: str) -> dict:
+    """用 ffprobe 看编码/容器，判断浏览器能不能播（找不到 ffprobe 就退回扩展名判断）。"""
+    p = packer.normalize_path(path)
+    if not p or not os.path.isfile(p):
+        return {"ok": False, "error": "文件不存在"}
+    ext = os.path.splitext(p)[1].lower()
+    if ext not in namer.VIDEO_EXTS:
+        return {"ok": False, "error": "不是视频文件"}
+    if ext in _BAD_EXTS:
+        return {"ok": True, "codec": ext.lstrip("."), "container": ext.lstrip("."),
+                "playable": False}
+
+    import shutil
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return {"ok": False, "error": "没找到 ffprobe", "playable": None}
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name,width,height:format=format_name,duration",
+             "-of", "json", p],
+            capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc), "playable": None}
+    if out.returncode != 0:
+        return {"ok": False, "error": "ffprobe 解析失败", "playable": None}
+    try:
+        data = json.loads(out.stdout.decode("utf-8", "replace") or "{}")
+    except ValueError:
+        return {"ok": False, "error": "ffprobe 输出无效", "playable": None}
+
+    streams = data.get("streams") or []
+    if not streams:
+        return {"ok": False, "error": "没有视频流", "playable": False}
+    stream = streams[0]
+    fmt = (data.get("format") or {}).get("format_name", "") or ""
+    codec = (stream.get("codec_name") or "").lower()
+
+    container = ext.lstrip(".")
+    for key, name in (("matroska", "mkv"), ("avi", "avi"), ("mpegts", "ts"),
+                      ("flv", "flv"), ("asf", "wmv"), ("realmedia", "rm")):
+        if key in fmt:
+            container = name
+            break
+
+    playable = (codec not in _BAD_CODECS
+                and container not in _BAD_CONTAINERS
+                and ext not in _BAD_EXTS)
+    return {"ok": True, "codec": codec, "container": container,
+            "width": stream.get("width"), "height": stream.get("height"),
+            "duration": (data.get("format") or {}).get("duration"),
+            "playable": playable}
+
+
+def open_video(path: str) -> dict:
+    """用系统默认播放器打开（网页放不了的 MKV/HEVC 用）。"""
+    p = packer.normalize_path(path)
+    if not p or not os.path.isfile(p):
+        return {"ok": False, "error": "文件不存在"}
+    if os.path.splitext(p)[1].lower() not in namer.VIDEO_EXTS:
+        return {"ok": False, "error": "不是视频文件"}
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(p)                       # noqa: S606  仅本地工具
+        else:
+            subprocess.Popen(["xdg-open", p])
+    except OSError as exc:
+        return {"ok": False, "error": f"无法打开：{exc}"}
+    return {"ok": True}
 
 
 def video_list(raw: str) -> dict:
@@ -359,6 +439,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/video/stream":
             query = parse_qs(urlparse(self.path).query)
             return self._video_stream((query.get("path") or [""])[0])
+        if path == "/api/video/probe":
+            query = parse_qs(urlparse(self.path).query)
+            return self._json(probe_video((query.get("path") or [""])[0]))
         if path == "/api/library/cover":
             query = parse_qs(urlparse(self.path).query)
             target = (query.get("path") or [""])[0]
@@ -449,6 +532,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/organize/apply":
                 return self._json(organizer.apply(data.get("path") or "",
                                                   data.get("plan") or {}))
+            if path == "/api/video/open":
+                return self._json(open_video(data.get("path") or ""))
             if path == "/api/video/list":
                 return self._json(video_list(data.get("path") or ""))
             if path == "/api/emby/scan":
