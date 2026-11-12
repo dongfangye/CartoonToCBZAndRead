@@ -71,33 +71,45 @@ _server_ref: dict = {"server": None}
 
 
 def video_list(raw: str) -> dict:
-    """列出文件夹里的视频（播放页用）；也接受单个视频文件路径。"""
+    """列出视频（播放页用）：文件夹会**递归**找，兼容 剧名/Season 01/ 这类结构。
+
+    只扫描一层的话，标准平铺文件夹能用，但 Emby 那种套了几层的文件夹就什么都找不到。
+    """
     p = packer.normalize_path(raw)
     if not p:
         return {"ok": False, "error": "请先选择文件夹"}
+
     if os.path.isfile(p):
         if os.path.splitext(p)[1].lower() not in namer.VIDEO_EXTS:
             return {"ok": False, "error": "不是视频文件"}
-        folder, name = os.path.dirname(p), os.path.basename(p)
-        info = namer.scan(folder)
-        if not info.get("ok"):
-            return info
-        picked = [v for v in info["videos"] if v["name"] == name]
+        try:
+            st = os.stat(p)
+        except OSError as exc:
+            return {"ok": False, "error": f"无法读取：{exc}"}
+        name = os.path.basename(p)
+        items = [{
+            "name": name, "rel": name, "dir": "", "path": p,
+            "size": st.st_size, "size_text": packer.human_size(st.st_size),
+            "ext": os.path.splitext(name)[1].lower(),
+        }]
+        root = os.path.dirname(p)
+        total = st.st_size
     elif os.path.isdir(p):
-        info = namer.scan(p)
+        info = organizer.scan(p)
         if not info.get("ok"):
             return info
-        picked = info["videos"]
+        root = info["root"]
+        items = [{
+            "name": v["name"], "rel": v["rel"], "dir": v["dir"], "path": v["path"],
+            "size": v["size"], "size_text": v["size_text"], "ext": v["ext"],
+        } for v in info["videos"]]
+        total = info["totals"]["bytes"]
     else:
         return {"ok": False, "error": f"文件夹不存在：{p}"}
 
-    items = [{"name": v["name"], "path": os.path.join(info["root"], v["name"]),
-              "size": v["size"], "size_text": v["size_text"], "ext": v["ext"]}
-             for v in picked]
-    total = sum(v["size"] for v in picked)
     return {
         "ok": True,
-        "root": info["root"],
+        "root": root,
         "items": items,
         "totals": {"videos": len(items), "bytes": total,
                    "size_text": packer.human_size(total)},

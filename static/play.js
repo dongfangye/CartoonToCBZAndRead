@@ -97,12 +97,12 @@ function renderList() {
   state.items.forEach((item) => {
     const li = document.createElement("li");
     li.className = "play-item";
-    li.dataset.name = item.name;
-    li.title = item.name;
+    li.dataset.path = item.path;
+    li.title = item.path;
 
     const name = document.createElement("span");
     name.className = "play-item-name";
-    name.textContent = item.name;
+    name.textContent = item.rel || item.name;
 
     const meta = document.createElement("span");
     meta.className = "play-item-meta";
@@ -117,7 +117,7 @@ function renderList() {
 
 function highlight() {
   document.querySelectorAll(".play-item").forEach((li) => {
-    li.classList.toggle("active", !!state.current && li.dataset.name === state.current.name);
+    li.classList.toggle("active", !!state.current && li.dataset.path === state.current.path);
   });
 }
 
@@ -125,8 +125,8 @@ function highlight() {
 function playItem(item, autoplay) {
   if (!item) return;
   state.current = item;
-  $("#info-title").textContent = item.name;
-  $("#info-title").title = item.name;
+  $("#info-title").textContent = item.rel || item.name;
+  $("#info-title").title = item.path;
   $("#info-size").textContent = item.size_text;
   $("#info-res").textContent = "";
   $("#empty").classList.add("hidden");
@@ -236,6 +236,30 @@ document.addEventListener("keydown", (e) => {
   else if (e.code === "KeyF") { $("#btn-full").click(); }
   else if (e.code === "KeyM") { $("#btn-mute").click(); }
 });
+
+/* 滚轮切换上/下一个视频（只在播放器区域；左侧列表保留自己的滚动） */
+let wheelAcc = 0;
+let wheelLock = 0;
+
+function stepItem(dir) {
+  if (!state.items.length) return;
+  const idx = state.current ? state.items.findIndex((i) => i.path === state.current.path) : -1;
+  const next = idx < 0 ? 0 : (idx + dir + state.items.length) % state.items.length;
+  playItem(state.items[next], true);
+}
+
+document.querySelector(".play-stage").addEventListener("wheel", (e) => {
+  if (!state.items.length) return;
+  e.preventDefault();
+  const now = Date.now();
+  if (now - wheelLock < 280) return;
+  wheelAcc += e.deltaY;
+  if (Math.abs(wheelAcc) < 60) return;
+  const dir = wheelAcc > 0 ? 1 : -1;
+  wheelAcc = 0;
+  wheelLock = now;
+  stepItem(dir);
+}, { passive: false });
 
 /* 记住上次的倍速和音量 */
 (function restorePrefs() {

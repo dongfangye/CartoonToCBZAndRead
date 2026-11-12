@@ -819,6 +819,17 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(listed["items"][0]["name"], "片段.mp4")
         self.assertEqual(listed["totals"]["videos"], 1)
 
+        # 非标准结构：剧名/Season 01/第01话.mp4 也要能读到（递归扫描）
+        nested = os.path.join(folder, "剧名", "Season 01")
+        os.makedirs(nested)
+        with open(os.path.join(nested, "第01话.mp4"), "wb") as fh:
+            fh.write(b"nested")
+        again = self.post("/api/video/list", {"path": folder})
+        self.assertTrue(again["ok"], again)
+        rels = [i["rel"] for i in again["items"]]
+        self.assertIn(os.path.join("剧名", "Season 01", "第01话.mp4"), rels)
+        self.assertEqual(again["totals"]["videos"], 2)
+
         quoted = urllib.parse.quote(path, safe="")
         stream_url = self.url("/api/video/stream?path=" + quoted)
 
