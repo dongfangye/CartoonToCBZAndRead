@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComicPack · 视频整理</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/organize.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🗂️</span>
+    <div class="brand-text">
+      <h1>ComicPack <span class="tag">整理</span></h1>
+      <p>视频归置 · 改名 · 清理旧目录</p>
+    </div>
+  </div>
+  <nav class="nav">
+    <a class="ghost" href="/">打包</a>
+    <a class="ghost" href="/reader">阅读</a>
+    <a class="ghost" href="/rename">改名</a>
+    <a class="ghost" href="/organize" aria-current="page">整理</a>
+  </nav>
+  <button id="btn-quit" class="ghost" title="停止本地服务">关闭服务</button>
+</header>
+
+<main class="org-layout">
+
+  <!-- ============ 左：新建文件夹 ============ -->
+  <aside class="panel org-panel">
+    <div class="panel-head">
+      <h2>新建文件夹</h2>
+      <button id="btn-add-folder" class="btn btn-sm btn-primary">＋ 新建</button>
+    </div>
+    <div id="unassigned-zone" class="org-unassigned" title="把视频拖到这里：取消归类">
+      未归类 <b id="unassigned-count">0</b>
+    </div>
+    <ul id="folder-list" class="org-folders"></ul>
+    <p class="tip">把中间的视频拖到文件夹上；没拖的会进「其他」。未勾选「保留」的旧目录会在执行后删除。</p>
+  </aside>
+
+  <!-- ============ 中：视频列表 ============ -->
+  <section class="panel org-panel org-main">
+    <div class="panel-head">
+      <h2>视频</h2>
+      <span class="hint" id="scan-summary">尚未扫描</span>
+    </div>
+    <div class="path-row">
+      <input id="path" type="text" spellcheck="false" placeholder="粘贴文件夹路径，例如 D:\影视\某剧">
+      <button id="btn-browse" class="btn btn-primary">浏览…</button>
+      <button id="btn-scan" class="btn">扫描</button>
+    </div>
+    <div id="dir-groups" class="org-groups"></div>
+    <div id="org-empty" class="empty">
+      <div class="empty-icon">🎬</div>
+      <p>扫描一个文件夹后，这里会列出它和所有子文件夹里的视频</p>
+    </div>
+  </section>
+
+  <!-- ============ 右：预览与执行 ============ -->
+  <aside class="panel org-panel">
+    <div class="panel-head"><h2>执行</h2></div>
+    <ul class="stat-list">
+      <li><span>视频</span><b id="st-videos">0</b></li>
+      <li><span>新建文件夹</span><b id="st-folders">0</b></li>
+      <li><span>将删除旧目录</span><b id="st-delete">0</b></li>
+      <li><span>勾选保留</span><b id="st-keep">0</b></li>
+    </ul>
+    <p class="tip">「其他」按需自动创建；目标重名自动加 <code>(2)</code>。执行会<strong>永久删除</strong>未保留的旧文件夹。</p>
+    <div class="spacer"></div>
+    <div id="result-box" class="result-box hidden"></div>
+    <button id="btn-plan" class="btn" disabled>预览</button>
+    <button id="btn-apply" class="btn btn-start" disabled>确定执行</button>
+  </aside>
+
+</main>
+
+<!-- 预览弹窗 -->
+<div id="plan-modal" class="org-modal hidden" role="dialog" aria-modal="true">
+  <div class="org-modal-box">
+    <div class="org-modal-head">
+      <span>执行预览</span>
+      <button id="plan-close" class="chapter-x">×</button>
+    </div>
+    <div id="plan-body" class="org-modal-body"></div>
+    <div class="org-modal-foot">
+      <span id="plan-hint" class="tip"></span>
+      <button id="plan-cancel" class="btn btn-sm">取消</button>
+      <button id="plan-ok" class="btn btn-sm btn-primary" disabled>按这个计划执行</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="/static/organize.js"></script>
+</body>
+</html>

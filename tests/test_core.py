@@ -742,6 +742,32 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(len(res["produced"]), 2)
         self.assertTrue(os.path.isfile(os.path.join(root, "书A.cbz")))
 
+    def test_organize_page_and_api(self):
+        status, _ctype, body = self.get("/organize")
+        self.assertEqual(status, 200)
+        self.assertIn(b"organize.js", body)
+
+        root = os.path.join(self.tmp, "整理")
+        for rel in ("A", "B"):
+            d = os.path.join(root, rel)
+            os.makedirs(d)
+            with open(os.path.join(d, "1.mp4"), "wb") as fh:
+                fh.write(b"video")
+
+        scan = self.post("/api/organize/scan", {"path": root})
+        self.assertTrue(scan["ok"], scan)
+        self.assertEqual(scan["totals"]["videos"], 2)
+
+        plan_payload = {"folders": ["新"], "assignments": {}}
+        plan = self.post("/api/organize/plan", {"path": root, "plan": plan_payload})
+        self.assertTrue(plan["ok"], plan)
+        self.assertTrue(plan["other"])
+
+        out = self.post("/api/organize/apply", {"path": root, "plan": plan_payload})
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(os.path.isdir(os.path.join(root, "其他")))
+        self.assertFalse(os.path.exists(os.path.join(root, "A")))
+
     def test_rename_page_and_api(self):
         status, _ctype, body = self.get("/rename")
         self.assertEqual(status, 200)
