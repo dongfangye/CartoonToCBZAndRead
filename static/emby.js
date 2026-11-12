@@ -188,6 +188,10 @@ function updateSummary() {
     `<span class="ok-text">${Math.max(0, parsed)} 个参与</span>` +
     (excluded ? `<span class="warn">${excluded} 个已取消</span>` : "") +
     (scan.totals.skip ? `<span class="bad">${scan.totals.skip} 个无法识别</span>` : "");
+  if (parsed <= 0 && scan.totals.videos > 0) {
+    $("#summary").innerHTML +=
+      `<span class="warn">全都没认出来？点上方「全选并强制编号」按当前顺序编号</span>`;
+  }
   $("#btn-preview").disabled = parsed <= 0;
 }
 
