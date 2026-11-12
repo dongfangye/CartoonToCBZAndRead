@@ -802,6 +802,51 @@ class HttpTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(root, "其他")))
         self.assertFalse(os.path.exists(os.path.join(root, "A")))
 
+    def test_video_stream_and_list(self):
+        status, _ctype, body = self.get("/play")
+        self.assertEqual(status, 200)
+        self.assertIn(b"play.js", body)
+
+        folder = os.path.join(self.tmp, "播放")
+        os.makedirs(folder)
+        path = os.path.join(folder, "片段.mp4")
+        payload = bytes(range(256))
+        with open(path, "wb") as fh:
+            fh.write(payload)
+
+        listed = self.post("/api/video/list", {"path": folder})
+        self.assertTrue(listed["ok"], listed)
+        self.assertEqual(listed["items"][0]["name"], "片段.mp4")
+        self.assertEqual(listed["totals"]["videos"], 1)
+
+        quoted = urllib.parse.quote(path, safe="")
+        stream_url = self.url("/api/video/stream?path=" + quoted)
+
+        with urllib.request.urlopen(stream_url, timeout=10) as res:
+            self.assertEqual(res.status, 200)
+            self.assertEqual(res.headers.get("Content-Type"), "video/mp4")
+            self.assertEqual(res.headers.get("Accept-Ranges"), "bytes")
+            self.assertEqual(res.read(), payload)
+
+        # 中间一段
+        req = urllib.request.Request(stream_url, headers={"Range": "bytes=2-5"})
+        with urllib.request.urlopen(req, timeout=10) as res:
+            self.assertEqual(res.status, 206)
+            self.assertEqual(res.headers.get("Content-Range"), "bytes 2-5/256")
+            self.assertEqual(res.read(), payload[2:6])
+
+        # 最后 10 字节
+        req = urllib.request.Request(stream_url, headers={"Range": "bytes=-10"})
+        with urllib.request.urlopen(req, timeout=10) as res:
+            self.assertEqual(res.status, 206)
+            self.assertEqual(res.read(), payload[-10:])
+
+        # 越界 → 416
+        req = urllib.request.Request(stream_url, headers={"Range": "bytes=999-"})
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(ctx.exception.code, 416)
+
     def test_rename_page_and_api(self):
         status, _ctype, body = self.get("/rename")
         self.assertEqual(status, 200)

@@ -10,6 +10,7 @@ app.py — ComicPack 本地 Web 服务
   /rename  改名：剧集视频按 Emby 规则改名（先预览再执行）
   /organize 整理：按文件夹归置视频、改名，并清理旧目录
   /emby    剧集：填剧名/年份/季，整理成 Emby 剧集结构
+  /play    播放：直接播放视频（倍速、音量、拖动进度）
 
 接口：
   POST /api/browse             弹出 Windows 原生选目录框，返回真实路径
@@ -30,6 +31,8 @@ app.py — ComicPack 本地 Web 服务
   POST /api/emby/scan          扫描剧集：递归找视频并解析集数
   POST /api/emby/build         预演 Emby 剧集结构（剧名/年份/季 由用户填）
   POST /api/emby/apply         建 剧名/Season 01/ 并移动改名
+  POST /api/video/list         列出文件夹里的视频（播放页用）
+  GET  /api/video/stream       视频流（支持 Range，可拖动进度条，适合 4K）
   POST /api/shutdown           关闭服务
 
 只依赖 Python 标准库（zipfile / tkinter / http.server）。
@@ -40,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -64,6 +68,40 @@ _jobs: dict = {}
 _jobs_lock = threading.Lock()
 _dialog_lock = threading.Lock()
 _server_ref: dict = {"server": None}
+
+
+def video_list(raw: str) -> dict:
+    """列出文件夹里的视频（播放页用）；也接受单个视频文件路径。"""
+    p = packer.normalize_path(raw)
+    if not p:
+        return {"ok": False, "error": "请先选择文件夹"}
+    if os.path.isfile(p):
+        if os.path.splitext(p)[1].lower() not in namer.VIDEO_EXTS:
+            return {"ok": False, "error": "不是视频文件"}
+        folder, name = os.path.dirname(p), os.path.basename(p)
+        info = namer.scan(folder)
+        if not info.get("ok"):
+            return info
+        picked = [v for v in info["videos"] if v["name"] == name]
+    elif os.path.isdir(p):
+        info = namer.scan(p)
+        if not info.get("ok"):
+            return info
+        picked = info["videos"]
+    else:
+        return {"ok": False, "error": f"文件夹不存在：{p}"}
+
+    items = [{"name": v["name"], "path": os.path.join(info["root"], v["name"]),
+              "size": v["size"], "size_text": v["size_text"], "ext": v["ext"]}
+             for v in picked]
+    total = sum(v["size"] for v in picked)
+    return {
+        "ok": True,
+        "root": info["root"],
+        "items": items,
+        "totals": {"videos": len(items), "bytes": total,
+                   "size_text": packer.human_size(total)},
+    }
 
 
 # ---------------------------------------------------------------- 原生选目录
@@ -195,6 +233,76 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError):
             return {}
 
+    _VIDEO_MIME = {
+        ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+        ".webm": "video/webm", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+        ".ts": "video/mp2t", ".m2ts": "video/mp2t", ".mts": "video/mp2t",
+        ".wmv": "video/x-ms-wmv", ".flv": "video/x-flv", ".mpg": "video/mpeg",
+        ".mpeg": "video/mpeg", ".3gp": "video/3gpp", ".ogv": "video/ogg",
+        ".rmvb": "application/vnd.rn-realmedia-vbr",
+        ".rm": "application/vnd.rn-realmedia",
+    }
+
+    def _video_stream(self, target: str):
+        """带 Range 的视频流：4K 大文件也能边下边播、拖动进度。"""
+        target = packer.normalize_path(target)
+        if not target or not os.path.isfile(target):
+            return self._json({"ok": False, "error": "视频不存在"}, 404)
+        ext = os.path.splitext(target)[1].lower()
+        if ext not in namer.VIDEO_EXTS:
+            return self._json({"ok": False, "error": "不是视频文件"}, 400)
+
+        size = os.path.getsize(target)
+        start, end, status = 0, max(0, size - 1), 200
+        rng = (self.headers.get("Range") or "").strip()
+        if rng:
+            m = re.match(r"^bytes=(\d*)-(\d*)$", rng)
+            if not m or (not m.group(1) and not m.group(2)):
+                return self._range_error(size)
+            a, b = m.group(1), m.group(2)
+            if a:
+                start = int(a)
+                end = int(b) if b else size - 1
+            else:                                  # bytes=-N 取最后 N 字节
+                start = max(0, size - int(b))
+                end = size - 1
+            end = min(end, size - 1)
+            if size == 0 or start >= size or start > end:
+                return self._range_error(size)
+            status = 206
+
+        length = end - start + 1 if size else 0
+        self.send_response(status)
+        self.send_header("Content-Type", self._VIDEO_MIME.get(ext, "application/octet-stream"))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+
+        if not length:
+            return
+        try:
+            with open(target, "rb") as fh:
+                fh.seek(start)
+                remain = length
+                while remain > 0:
+                    chunk = fh.read(min(256 * 1024, remain))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remain -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass                                    # 用户拖动/关闭页面，正常现象
+        except OSError:
+            pass
+
+    def _range_error(self, size: int):
+        self.send_response(416)
+        self.send_header("Content-Range", f"bytes */{size}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def _static(self, rel: str):
         rel = rel.lstrip("/").replace("\\", "/")
         full = os.path.normpath(os.path.join(STATIC_DIR, rel))
@@ -230,10 +338,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._static("organize.html")
         if path in ("/emby", "/emby.html"):
             return self._static("emby.html")
+        if path in ("/play", "/play.html"):
+            return self._static("play.html")
         if path.startswith("/static/"):
             return self._static(path[len("/static/"):])
         if path == "/api/health":
             return self._json({"ok": True, "version": "1.1"})
+        if path == "/api/video/stream":
+            query = parse_qs(urlparse(self.path).query)
+            return self._video_stream((query.get("path") or [""])[0])
         if path == "/api/library/cover":
             query = parse_qs(urlparse(self.path).query)
             target = (query.get("path") or [""])[0]
@@ -324,6 +437,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/organize/apply":
                 return self._json(organizer.apply(data.get("path") or "",
                                                   data.get("plan") or {}))
+            if path == "/api/video/list":
+                return self._json(video_list(data.get("path") or ""))
             if path == "/api/emby/scan":
                 return self._json(emby.scan(data.get("path") or ""))
             if path == "/api/emby/build":
