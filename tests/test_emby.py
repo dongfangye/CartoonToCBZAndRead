@@ -109,6 +109,45 @@ class EmbyTest(unittest.TestCase):
             # 被取消的那个留在原处
             self.assertTrue(os.path.isfile(os.path.join(tmp, "剧名 - 02.mp4")))
 
+    def test_force_numbers_by_current_order(self):
+        """默认规则认不出集数时，强制模式按当前顺序 1..N 编号。"""
+        with workdir() as tmp:
+            for name in ("片段 02.mp4", "片段 01.mp4", "片段 10.mp4"):
+                touch(os.path.join(tmp, name))
+            # 默认规则：全部无法识别
+            normal = emby.build(tmp, self.payload())
+            self.assertEqual(normal["totals"]["ok"], 0)
+
+            p = emby.build(tmp, self.payload(force=True))
+            self.assertTrue(p["ok"], p)
+            self.assertTrue(p["force"])
+            names = [r["new_name"] for r in p["rows"]]
+            self.assertEqual(names, ["测试剧 S01E01.mp4", "测试剧 S01E02.mp4",
+                                     "测试剧 S01E03.mp4"])
+            self.assertTrue(all(r["forced"] for r in p["rows"]))
+            self.assertEqual(p["missing"], [])
+
+    def test_force_with_exclusion_compacts_numbers(self):
+        with workdir() as tmp:
+            for name in ("a.mp4", "b.mp4", "c.mp4"):
+                touch(os.path.join(tmp, name))
+            p = emby.build(tmp, self.payload(force=True, exclude=["b.mp4"]))
+            self.assertTrue(p["ok"], p)
+            rows = [r for r in p["rows"] if r["status"] == "ok"]
+            self.assertEqual([r["new_name"] for r in rows],
+                             ["测试剧 S01E01.mp4", "测试剧 S01E02.mp4"])
+            self.assertEqual(rows[1]["name"], "c.mp4")
+
+    def test_force_apply_moves_in_order(self):
+        with workdir() as tmp:
+            for name in ("片段 02.mp4", "片段 01.mp4"):
+                touch(os.path.join(tmp, name))
+            res = emby.apply(tmp, self.payload(force=True))
+            self.assertTrue(res["ok"], res)
+            target = os.path.join(tmp, "测试剧 (2023)", "Season 01")
+            self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E01.mp4")))
+            self.assertTrue(os.path.isfile(os.path.join(target, "测试剧 S01E02.mp4")))
+
     def test_invalid_inputs(self):
         with workdir() as tmp:
             self._tree(tmp)

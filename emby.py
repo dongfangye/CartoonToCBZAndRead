@@ -140,27 +140,38 @@ def build(root: str, payload: dict) -> dict:
     if not isinstance(raw_exclude, list):
         raw_exclude = []
     excluded = {str(x) for x in raw_exclude}
+    force = bool(payload.get("force"))
 
     taken = set()
     rows = []
+    seq = 0
     for row in info["rows"]:
-        if row["status"] != "ok":
-            rows.append(dict(row, new_name="", reason=row["reason"]))
-            continue
         if row["id"] in excluded:
             rows.append(dict(row, new_name="", status="skip",
                              reason="已取消：不参与本次整理"))
             continue
-        tag = f"S{season:02d}E{row['episode']:02d}"
-        if row.get("episode2"):
-            tag += f"-E{row['episode2']:02d}"
+        if force:
+            # 强制模式：不看文件名，按当前显示顺序从 1 开始编号
+            seq += 1
+            episode, episode2 = seq, None
+        else:
+            if row["status"] != "ok":
+                rows.append(dict(row, new_name="", reason=row["reason"]))
+                continue
+            episode, episode2 = row["episode"], row.get("episode2")
+
+        tag = f"S{season:02d}E{episode:02d}"
+        if episode2:
+            tag += f"-E{episode2:02d}"
         new_name = _unique(f"{show} {tag}{row['ext']}", taken)
-        rows.append(dict(row, new_name=new_name))
+        rows.append(dict(row, new_name=new_name, episode=episode,
+                         episode2=episode2, forced=force, status="ok",
+                         reason=""))
 
     included = [r for r in rows if r["status"] == "ok"]
     episodes = [r["episode"] for r in included]
     missing = []
-    if episodes:
+    if episodes and not force:
         missing = [n for n in range(min(episodes), max(episodes) + 1)
                    if n not in set(episodes)]
 
@@ -170,6 +181,7 @@ def build(root: str, payload: dict) -> dict:
         "show": show,
         "year": year,
         "season": season,
+        "force": force,
         "show_dir": show_dir,
         "season_dir": season_dir_name,
         "target_dir": target_dir,

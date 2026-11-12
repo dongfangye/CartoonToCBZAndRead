@@ -9,6 +9,7 @@ const state = {
   scan: null,
   preview: null,
   excluded: new Set(),
+  force: false,
   running: false,
 };
 
@@ -66,8 +67,10 @@ async function scan() {
     state.scan = r;
     state.preview = null;
     state.excluded = new Set();
+    state.force = false;
     $("#path").value = r.root;
     localStorage.setItem("comicpack.emby.path", r.root);
+    updateForceUI();
     updateSummary();
     $("#btn-preview").disabled = !r.totals.ok;
     $("#btn-apply").disabled = true;
@@ -100,15 +103,19 @@ function renderRows(rows, previewRows) {
   const frag = document.createDocumentFragment();
   rows.forEach((r) => {
     const tr = document.createElement("tr");
+    const pv = byId[r.id] || null;
     if (state.excluded.has(r.id)) tr.classList.add("excluded");
 
     const pick = document.createElement("td");
     pick.className = "rt-pick";
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = r.status === "ok" && !state.excluded.has(r.id);
-    cb.disabled = r.status !== "ok";
-    cb.title = cb.disabled ? "识别不出集数，无法参与" : "取消勾选就跳过这个文件";
+    const canPick = state.force || r.status === "ok";
+    cb.checked = canPick && !state.excluded.has(r.id);
+    cb.disabled = !canPick;
+    cb.title = !canPick
+      ? "识别不出集数；点上方「全选并强制编号」可以按顺序强行编号"
+      : "取消勾选就跳过这个文件";
     cb.addEventListener("change", () => {
       if (cb.checked) state.excluded.delete(r.id);
       else state.excluded.add(r.id);
@@ -126,21 +133,32 @@ function renderRows(rows, previewRows) {
 
     const se = document.createElement("td");
     se.className = "rt-se";
-    se.textContent = r.episode != null ? String(r.episode) : "—";
+    const epi = pv && pv.episode != null ? pv.episode : r.episode;
+    se.textContent = epi != null ? String(epi) : "—";
 
     const neu = document.createElement("td");
     neu.className = "rt-new";
-    const p = byId[r.id];
-    neu.textContent = p ? p.new_name || "—" : "—";
+    neu.textContent = pv ? pv.new_name || "—" : "—";
 
     const st = document.createElement("td");
     const badge = document.createElement("span");
-    const status = p ? p.status : r.status;
-    badge.className = "badge " + status;
-    if (status === "ok") badge.textContent = p ? "可整理" : "识别到";
-    else if (state.excluded.has(r.id)) badge.textContent = "已取消";
-    else badge.textContent = "无法识别";
-    const reason = p ? p.reason : r.reason;
+    if (state.excluded.has(r.id)) {
+      badge.className = "badge skip";
+      badge.textContent = "已取消";
+    } else if (pv && pv.status === "ok") {
+      badge.className = "badge ok";
+      badge.textContent = pv.forced ? "强制编号" : "可整理";
+    } else if (state.force) {
+      badge.className = "badge ok";
+      badge.textContent = "将按顺序编号";
+    } else if (r.status === "ok") {
+      badge.className = "badge ok";
+      badge.textContent = "识别到";
+    } else {
+      badge.className = "badge skip";
+      badge.textContent = "无法识别";
+    }
+    const reason = pv ? pv.reason : r.reason;
     if (reason) badge.title = reason;
     st.appendChild(badge);
 
@@ -155,13 +173,32 @@ function updateSummary() {
   const scan = state.scan;
   if (!scan) return;
   const excluded = state.excluded.size;
-  const joined = Math.max(0, scan.totals.ok - excluded);
+  const joined = Math.max(0, scan.totals.videos - excluded);
+  if (state.force) {
+    $("#summary").innerHTML =
+      `<span><b>${scan.totals.videos}</b> 个视频</span>` +
+      `<span class="ok-text">强制编号：${joined} 个按当前顺序编号</span>` +
+      (excluded ? `<span class="warn">${excluded} 个已取消</span>` : "");
+    $("#btn-preview").disabled = joined === 0;
+    return;
+  }
+  const parsed = scan.totals.ok - excluded;
   $("#summary").innerHTML =
     `<span><b>${scan.totals.videos}</b> 个视频</span>` +
-    `<span class="ok-text">${joined} 个参与</span>` +
+    `<span class="ok-text">${Math.max(0, parsed)} 个参与</span>` +
     (excluded ? `<span class="warn">${excluded} 个已取消</span>` : "") +
     (scan.totals.skip ? `<span class="bad">${scan.totals.skip} 个无法识别</span>` : "");
-  $("#btn-preview").disabled = joined === 0;
+  $("#btn-preview").disabled = parsed <= 0;
+}
+
+/* 强制编号按钮的文案与提示 */
+function updateForceUI() {
+  const btn = $("#btn-force");
+  btn.textContent = state.force ? "取消强制编号" : "全选并强制编号";
+  btn.classList.toggle("btn-primary", state.force);
+  $("#force-hint").textContent = state.force
+    ? "已开启：忽略文件名，按当前列表顺序从 E01 开始编号"
+    : "默认规则认不出集数时，点左边按钮按顺序编号";
 }
 
 /* ---------------- 预览与执行 ---------------- */
@@ -171,6 +208,7 @@ function payload() {
     year: $("#year").value.trim(),
     season: $("#season").value.trim() || "1",
     exclude: [...state.excluded],
+    force: state.force,
   };
 }
 
@@ -183,7 +221,7 @@ async function preview() {
     state.preview = r;
     $("#summary").innerHTML =
       `<span>目标：<b>${escapeHtml(r.show_dir)}\\${escapeHtml(r.season_dir)}</b></span>` +
-      `<span class="ok-text">${r.totals.ok} 个参与</span>` +
+      `<span class="ok-text">${r.totals.ok} 个参与${r.force ? "（强制编号）" : ""}</span>` +
       (r.totals.excluded ? `<span class="warn">${r.totals.excluded} 个已取消</span>` : "") +
       (r.missing.length ? `<span class="warn">缺号：${r.missing.join(", ")}</span>` : "");
     renderRows(state.scan.rows, r.rows);
@@ -247,6 +285,16 @@ $("#btn-browse").addEventListener("click", browse);
 $("#btn-scan").addEventListener("click", scan);
 $("#btn-preview").addEventListener("click", preview);
 $("#btn-apply").addEventListener("click", applyPlan);
+$("#btn-force").addEventListener("click", () => {
+  if (!state.scan) { toast("请先扫描文件夹"); return; }
+  state.force = !state.force;
+  if (state.force) state.excluded.clear();
+  state.preview = null;
+  $("#btn-apply").disabled = true;
+  updateForceUI();
+  updateSummary();
+  renderRows(state.scan.rows, null);
+});
 
 $("#path").addEventListener("keydown", (e) => { if (e.key === "Enter") scan(); });
 
@@ -266,6 +314,7 @@ $("#btn-quit").addEventListener("click", async () => {
 
 /* ---------------- 初始化 ---------------- */
 (function init() {
+  updateForceUI();
   renderRows([], null);
   const saved = localStorage.getItem("comicpack.emby.path");
   const fromUrl = new URLSearchParams(location.search).get("path");
